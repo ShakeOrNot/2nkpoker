@@ -1,0 +1,13 @@
+{
+  "name": "@2nkpoker/shared",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "build": "echo \"no build needed\"",
+    "test": "echo \"no tests\""
+  }
+}
