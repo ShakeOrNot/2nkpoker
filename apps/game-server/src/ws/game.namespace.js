@@ -1,4 +1,5 @@
 import { verifyJwt } from '../auth/jwt.js';
+import { registerTableJoin } from './handlers/table.join.js';
 
 /**
  * @param {import('socket.io').Server} io
@@ -22,20 +23,7 @@ export function registerGameNamespace(io) {
   nsp.on('connection', (socket) => {
     console.log('connected:', socket.data.userId);
 
-    socket.emit('table:snapshot', {
-      tableId: 'lobby',
-      version: 0,
-      street: 'WAITING',
-      handId: null,
-      buttonSeat: 0,
-      smallBlind: 1,
-      bigBlind: 2,
-      board: [],
-      pots: [],
-      seats: [],
-      currentTurnSeat: null,
-      actionDeadline: null,
-    });
+    registerTableJoin(nsp, socket);
 
     socket.on('disconnect', () => {
       console.log('disconnected:', socket.data.userId);

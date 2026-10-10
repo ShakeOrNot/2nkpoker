@@ -8,8 +8,14 @@ importers:
 
   .:
     devDependencies:
+      dotenv:
+        specifier: ^18.0.7
+        version: 18.0.7
+      jsonwebtoken:
+        specifier: ^9.0.3
+        version: 9.0.3
       socket.io-client:
-        specifier: ^4.7.5
+        specifier: ^4.8.4
         version: 4.8.4
       vitest:
         specifier: ^1.6.0
@@ -502,6 +508,11 @@ packages:
   diff-sequences@29.6.3:
     resolution: {integrity: sha512-EjePK1srD3P08o2j4f0ExnylqRs5B9tJjcp9t1krH2qRi8CCdsYfwe9JgSLurFBWwq4uOlipzfk5fHNvwFKr8Q==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
+
+  dotenv@18.0.7:
+    resolution: {integrity: sha512-QEvMEF8ca3GNZJJnAbOgxpj5ULhBvnMcURp+XKrtvqFNPgjBvYoswQ0Jl2cO7JzCjxZjJhr9ZuIEhlrRxMft/Q==}
+    engines: {node: '>=12'}
+    hasBin: true
 
   ecdsa-sig-formatter@1.0.11:
     resolution: {integrity: sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==}
@@ -1321,6 +1332,8 @@ snapshots:
   denque@2.1.0: {}
 
   diff-sequences@29.6.3: {}
+
+  dotenv@18.0.7: {}
 
   ecdsa-sig-formatter@1.0.11:
     dependencies:
