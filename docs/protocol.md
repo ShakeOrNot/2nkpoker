@@ -102,3 +102,57 @@
 
 | `game:result` | 筹码飞向赢家 |
 
+---
+
+## Day 5 后端工具清单
+
+这些函数在 `@2nkpoker/poker-engine` 和 `@2nkpoker/shared` 里，前端可直接 import。
+
+### 位置（`poker-engine/positions.js`）
+
+- `Position`：BTN / SB / BB / UTG / HJ / CO
+- `positionsFor(n)` → 位置名数组，n ∈ [2, 6]
+- `positionOf(seat, buttonSeat, n)`
+- `seatPositions(buttonSeat, n)` → Map<seat, position>
+- `preflopOrder(buttonSeat, n)` → 座位号数组，翻前行动顺序
+- `postflopOrder(buttonSeat, n)` → 座位号数组，翻后行动顺序
+
+### 底池（`poker-engine/pot.js`）
+
+- `buildPots(contributions)` → `Pot[]`，每层独立，**不合并**
+  - `contributions`: `[{ seat, amount, folded }]`
+  - `Pot`: `{ amount, eligibleSeats: number[] }`
+- `totalPot(pots)`
+- `awardPots(pots, handStrengthBySeat)`
+  - 每层独立找 eligibleSeats 中牌力最高者
+  - 多人并列 → 平分；余数给**座位号最小**的赢家
+  - 返回 `Map<seat, chips>`
+  - `eligibleSeats` 为空的层被跳过（退还逻辑在 Day 6 状态机）
+
+### 下注快捷（`poker-engine/betSizing.js`）
+
+- `BetFraction`：`THIRD=1/3`、`HALF=0.5`、`TWO_THIRDS=2/3`、`FULL=1`、`ONE_POINT_TWO=1.2`
+- `calcBetSize({ pot, fraction, currentBet, myBetThisStreet, chips, minRaise, bigBlind })`
+  - 返回 `{ type: 'bet'|'raise', amount, capped, isAllIn, fraction }`
+  - `amount` 是"本街下注到多少"，不是增量
+  - 无人下注 → `raise_to = round(fraction * pot)`，下限 bigBlind
+  - 有人下注 → `raise_to = round(currentBet + fraction * (pot + 2 * toCall))`，下限 currentBet + minRaise
+  - 超过 `myBetThisStreet + chips` 时截断并 `capped: true`
+
+### 行动合法性（`poker-engine/actions.js`）
+
+- `legalActions(state, seat)` → 类型数组
+- `validateAction(state, seat, action)` → `{ pay, isRaise, isAllIn }` 或抛 `ActionError`
+- `ActionError`：`NOT_YOUR_TURN` / `INVALID_ACTION` / `INSUFFICIENT_CHIPS` / `SEAT_INVALID`
+
+### 格式化（`shared/format.js`）
+
+- `potPercent(amount, pot)` → `"50%"`、`"120%"`
+- `formatChips(n)` → `"1.2k"`、`"1.5m"`
+- `formatDuration(ms)` → `"30s"`、`"1m"`
+
+### 前端注意
+
+- `bet` / `raise` 的 `amount` 都是**目标金额**（total this street），不是增量
+- `capped: true` 表示"点这个按钮会 all-in，因为筹码不够"
+- `awardPots` 返回的 `Map` 只包含赢家，没赢的座位不出现
