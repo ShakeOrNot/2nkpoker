@@ -11,6 +11,9 @@ importers:
       '@2nkpoker/poker-engine':
         specifier: workspace:^
         version: link:packages/poker-engine
+      '@2nkpoker/shared':
+        specifier: workspace:^
+        version: link:packages/shared
       dotenv:
         specifier: ^18.0.7
         version: 18.0.7
@@ -68,7 +71,11 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@26.6.5)
 
-  packages/shared: {}
+  packages/shared:
+    devDependencies:
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@26.6.5)
 
 packages:
 

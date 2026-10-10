@@ -8,6 +8,9 @@
   },
   "scripts": {
     "build": "echo \"no build needed\"",
-    "test": "echo \"no tests\""
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
   }
 }

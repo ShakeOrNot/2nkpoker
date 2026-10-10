@@ -10,6 +10,7 @@
   },
   "devDependencies": {
     "@2nkpoker/poker-engine": "workspace:^",
+    "@2nkpoker/shared": "workspace:^",
     "dotenv": "^18.0.7",
     "jsonwebtoken": "^9.0.3",
     "socket.io-client": "^4.8.4",
