@@ -2,7 +2,7 @@ import { TableReadySchema, parseOrError } from '../validate.js';
 import { getTable } from '../../state/tableManager.js';
 import { maybeStartHand } from '../../state/handOrchestrator.js';
 import { broadcastTable } from './table.sit.js';
-import { broadcastHandStart, broadcastActionRequest } from './game.action.js';
+import { broadcastHandStart, broadcastActionRequest } from '../../state/actionTimer.js';
 
 /**
  * @param {import('socket.io').Namespace} nsp
