@@ -10,7 +10,7 @@ export const TableLeaveSchema = z.object({
 
 export const TableSitSchema = z.object({
   tableId: z.string().min(1).max(64),
-  seat: z.number().int().min(0).max(9),
+  seat: z.number().int().min(-1).max(9),
   buyIn: z.number().int().positive().max(1000000),
 });
 

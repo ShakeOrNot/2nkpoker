@@ -1,6 +1,6 @@
 import { TableJoinSchema, parseOrError } from '../validate.js';
-import { getOrCreateRoom, toSnapshot } from '../rooms.js';
-import { getTable } from '../../state/tableManager.js';
+import { getOrCreateTable } from '../../state/tableManager.js';
+import { toTableSnapshot } from '../../state/tableSnapshot.js';
 import { restoreSeat } from '../../state/disconnectManager.js';
 
 /**
@@ -17,26 +17,20 @@ export function registerTableJoin(nsp, socket) {
 
     const { tableId } = parsed.data;
     const userId = socket.data.userId;
+    const t = getOrCreateTable(tableId);
 
-    // 先尝试恢复：如果用户之前坐在这张桌的某座位，标记 connected 并恢复 socket.data
-    const t = getTable(tableId);
-    if (t) {
-      const seat = t.userToSeat.get(userId);
-      if (seat != null) {
-        restoreSeat(socket, tableId, seat, nsp);
-        if (typeof ack === 'function') ack({ ok: true, restored: true, seat });
-        return;
-      }
+    // 断线重连：如果用户之前坐在这张桌
+    const existingSeat = t.userToSeat.get(userId);
+    if (existingSeat != null) {
+      restoreSeat(socket, tableId, existingSeat, nsp);
+      if (typeof ack === 'function') ack({ ok: true, restored: true, seat: existingSeat });
+      return;
     }
 
-    // 正常 join（可能是观战）
-    const room = getOrCreateRoom(tableId);
-    room.members.add(userId);
-    room.version += 1;
+    // 普通 join：订阅房间，只给自己发一份初始快照
     socket.join(`table:${tableId}`);
-
-    const snapshot = toSnapshot(room);
-    nsp.to(`table:${tableId}`).emit('table:snapshot', snapshot);
+    const forSeat = socket.data.seat ?? null;
+    socket.emit('table:snapshot', toTableSnapshot(t, forSeat));
 
     if (typeof ack === 'function') ack({ ok: true });
   });

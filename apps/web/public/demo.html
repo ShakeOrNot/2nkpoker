@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>2nkpoker demo</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #eee; padding: 20px; }
+  button { padding: 6px 12px; margin: 2px; cursor: pointer; }
+  #seats { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+  .seat { border: 1px solid #444; padding: 8px 12px; min-width: 140px; border-radius: 6px; }
+  .seat.empty { opacity: 0.4; }
+  .seat.me { border-color: #4ade80; }
+  .seat.folded { opacity: 0.5; text-decoration: line-through; }
+  .cards { font-family: monospace; font-size: 1.1em; }
+  #board { font-family: monospace; font-size: 1.4em; margin: 8px 0; letter-spacing: 6px; }
+  #actions button { background: #2563eb; color: white; border: none; }
+  #actions button.fold { background: #6b7280; }
+  #actions button.raise { background: #dc2626; }
+  #log { background: #111; padding: 8px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85em; margin-top: 12px; }
+  #controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input { padding: 6px; background: #222; color: #eee; border: 1px solid #444; }
+</style>
+</head>
+<body>
+<h2>2nkpoker 单文件 demo</h2>
+
+<div id="controls">
+  <label>昵称：<input id="nickname" value="Tom" /></label>
+  <button id="btnLogin">拿 token 并连接</button>
+  <button id="btnSit" disabled>坐下(0 号座)</button>
+  <button id="btnReady" disabled>准备</button>
+  <button id="btnStand" disabled>站起</button>
+  <span id="status">未连接</span>
+</div>
+
+<div>公共牌：<span id="board">-</span></div>
+<div>底池：<span id="pot">-</span>，当前下注：<span id="currentBet">-</span>，轮到座位：<span id="turn">-</span></div>
+
+<div id="seats"></div>
+
+<div>我的动作：</div>
+<div id="actions"><span style="opacity:.5">等待轮到我……</span></div>
+
+<div id="log"></div>
+
+<script>
+const API = 'http://localhost:3001';
+const WS = 'http://localhost:3001/game';
+const TABLE_ID = 'demo';
+
+let socket = null;
+let mySeat = null;
+let latestSnap = null;
+
+const $ = (id) => document.getElementById(id);
+
+function log(...args) {
+  const line = args.map((x) => typeof x === 'string' ? x : JSON.stringify(x)).join(' ');
+  const el = $('log');
+  el.innerHTML += line + '<br>';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function fetchToken(nickname) {
+  const r = await fetch(API + '/dev/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nickname }),
+  });
+  const data = await r.json();
+  if (!data.ok) throw new Error('token failed: ' + JSON.stringify(data));
+  return data;
+}
+
+function connect(token) {
+  socket = io(WS, { auth: { token } });
+
+  socket.on('connect', () => {
+    $('status').textContent = '已连接';
+    log('[ws] connected');
+    socket.emit('table:join', { tableId: TABLE_ID });
+  });
+
+  socket.on('connect_error', (err) => {
+    log('[ws] connect_error:', err.message);
+  });
+
+  socket.on('disconnect', () => {
+    log('[ws] disconnected');
+    $('status').textContent = '已断开';
+  });
+
+  socket.on('table:snapshot', (snap) => {
+    latestSnap = snap;
+    render(snap);
+  });
+
+  socket.on('hand:start', (p) => log('[hand] start', p.handId));
+
+  socket.on('game:action_applied', (p) => {
+    log(`[action] seat ${p.seat} ${JSON.stringify(p.action)}${p.timeout ? ' (timeout)' : ''}`);
+  });
+
+  socket.on('game:action_request', (p) => {
+    log('[request] your turn, legal:', p.legalActions.join(','));
+    renderActions(p);
+  });
+
+  socket.on('game:result', (p) => {
+    log('[result] payouts:', JSON.stringify(p.result.payouts));
+    log('[result] board:', p.board.join(' '));
+    $('actions').innerHTML = '<span style="opacity:.5">本手结束</span>';
+  });
+}
+
+function render(snap) {
+  const s = snap.seats;
+  const h = snap.hand;
+
+  $('board').textContent = h ? (h.board.join(' ') || '-') : '-';
+  $('pot').textContent = h ? h.pot : '-';
+  $('currentBet').textContent = h ? h.currentBet : '-';
+  $('turn').textContent = h && h.currentTurnSeat != null ? h.currentTurnSeat : '-';
+
+  const seatsHtml = s.map((seat) => {
+    const inHand = h?.seats.find((x) => x.seat === seat.seat);
+    const cls = ['seat'];
+    if (!seat.userId) cls.push('empty');
+    if (seat.seat === mySeat) cls.push('me');
+    if (inHand?.folded) cls.push('folded');
+    const hole = inHand?.holeCards?.length ? inHand.holeCards.join(' ') : '';
+    const chips = inHand ? inHand.chips : seat.chips;
+    const bet = inHand ? inHand.betThisStreet : 0;
+    const info = seat.userId
+      ? `${seat.nickname}${seat.ready ? ' [READY]' : ''}${!seat.connected ? ' [OFF]' : ''}`
+      : '(空)';
+    const lines = [
+      `<b>座位 ${seat.seat}</b>`,
+      info,
+      `筹码 ${chips}${bet ? ' | 本街 ' + bet : ''}`,
+      hole ? `<span class="cards">${hole}</span>` : '',
+      inHand?.allIn ? '<b style="color:#f59e0b">ALL IN</b>' : '',
+    ].filter(Boolean);
+    return `<div class="${cls.join(' ')}">${lines.join('<br>')}</div>`;
+  }).join('');
+  $('seats').innerHTML = seatsHtml;
+
+  // 按钮状态
+  if (mySeat == null) {
+    $('btnSit').disabled = !snap.seats.some((x) => !x.userId);
+    $('btnReady').disabled = true;
+    $('btnStand').disabled = true;
+  } else {
+    $('btnSit').disabled = true;
+    $('btnReady').disabled = !!h;
+    $('btnStand').disabled = !!h;
+  }
+}
+
+function renderActions(p) {
+  const el = $('actions');
+  el.innerHTML = '';
+  const mk = (label, action, cls) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (cls) b.className = cls;
+    b.onclick = () => {
+      el.innerHTML = '<span style="opacity:.5">已发送，等待服务端确认……</span>';
+      sendAction(p, action);
+    };
+    return b;
+  };
+
+  if (p.legalActions.includes('fold')) el.appendChild(mk('弃牌', { type: 'fold' }, 'fold'));
+  if (p.legalActions.includes('check')) el.appendChild(mk('过牌', { type: 'check' }));
+  if (p.legalActions.includes('call')) el.appendChild(mk('跟注', { type: 'call' }));
+  if (p.legalActions.includes('bet')) {
+    // 简化：1/2 pot bet
+    const amount = Math.max(20, Math.round((latestSnap.hand.pot) * 0.5));
+    el.appendChild(mk(`下注 ${amount}`, { type: 'bet', amount }, 'raise'));
+  }
+  if (p.legalActions.includes('raise')) {
+    // 简化：minRaise 到 currentBet + minRaise
+    const amount = latestSnap.hand.currentBet + latestSnap.hand.minRaise;
+    el.appendChild(mk(`加注到 ${amount}`, { type: 'raise', amount }, 'raise'));
+  }
+  if (p.legalActions.includes('all_in')) el.appendChild(mk('All in', { type: 'all_in' }, 'raise'));
+}
+
+function sendAction(req, action) {
+  socket.emit('game:action', {
+    tableId: TABLE_ID,
+    handId: req.handId,
+    expectedVersion: latestSnap.hand.version,
+    action,
+  }, (res) => {
+    if (!res.ok) log('[action] failed:', res.code, res.message);
+    else log('[action] ok');
+  });
+}
+
+$('btnLogin').onclick = async () => {
+  const nickname = $('nickname').value || 'Guest';
+  try {
+    const { token, userId } = await fetchToken(nickname);
+    log('[auth] userId:', userId);
+    connect(token);
+  } catch (e) {
+    log('[auth] error:', e.message);
+  }
+};
+
+$('btnSit').onclick = () => {
+  socket.emit('table:sit', { tableId: TABLE_ID, seat: 0, buyIn: 1000 }, (res) => {
+    if (res.ok) { mySeat = res.seat; log('[sit] ok, seat', res.seat); }
+    else log('[sit] failed:', res.code, res.message);
+  });
+};
+
+$('btnReady').onclick = () => {
+  socket.emit('table:ready', { tableId: TABLE_ID, ready: true }, (res) => {
+    log('[ready]', res);
+  });
+};
+
+$('btnStand').onclick = () => {
+  socket.emit('table:stand', { tableId: TABLE_ID }, (res) => {
+    if (res.ok) { mySeat = null; log('[stand] ok'); }
+    else log('[stand] failed:', res.code);
+  });
+};
+</script>
+</body>
+</html>
