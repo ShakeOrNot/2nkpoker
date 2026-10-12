@@ -156,3 +156,8 @@
 - `bet` / `raise` 的 `amount` 都是**目标金额**（total this street），不是增量
 - `capped: true` 表示"点这个按钮会 all-in，因为筹码不够"
 - `awardPots` 返回的 `Map` 只包含赢家，没赢的座位不出现
+## 短 all-in 规则
+
+- all-in 加注幅度 < `minRaise` 时，**不重置**其他玩家的 `hasActedThisStreet`（不能再加注）
+- 但任何 `betThisStreet < currentBet` 的玩家仍必须行动一次（补差额或弃牌）
+- 多次短 all-in 累积达到 `minRaise` 时，仍然算一次完整加注，会重置行动
