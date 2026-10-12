@@ -35,3 +35,16 @@ export function parseOrError(schema, data) {
     message: `${first.path.join('.')}: ${first.message}`,
   };
 }
+export const GameActionSchema = z.object({
+  tableId: z.string().min(1).max(64),
+  handId: z.string().min(1),
+  expectedVersion: z.number().int().nonnegative(),
+  action: z.discriminatedUnion('type', [
+    z.object({ type: z.literal('fold') }),
+    z.object({ type: z.literal('check') }),
+    z.object({ type: z.literal('call') }),
+    z.object({ type: z.literal('bet'), amount: z.number().int().positive() }),
+    z.object({ type: z.literal('raise'), amount: z.number().int().positive() }),
+    z.object({ type: z.literal('all_in') }),
+  ]),
+});

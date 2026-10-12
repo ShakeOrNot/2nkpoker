@@ -1,10 +1,9 @@
 import { verifyJwt } from '../auth/jwt.js';
 import { registerTableJoin } from './handlers/table.join.js';
 import { registerTableSit } from './handlers/table.sit.js';
+import { registerTableReady } from './handlers/table.ready.js';
+import { registerGameAction } from './handlers/game.action.js';
 
-/**
- * @param {import('socket.io').Server} io
- */
 export function registerGameNamespace(io) {
   const nsp = io.of('/game');
 
@@ -26,6 +25,8 @@ export function registerGameNamespace(io) {
 
     registerTableJoin(nsp, socket);
     registerTableSit(nsp, socket);
+    registerTableReady(nsp, socket);
+    registerGameAction(nsp, socket);
 
     socket.on('disconnect', () => {
       console.log('disconnected:', socket.data.userId);
