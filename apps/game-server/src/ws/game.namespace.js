@@ -1,5 +1,6 @@
 import { verifyJwt } from '../auth/jwt.js';
 import { registerTableJoin } from './handlers/table.join.js';
+import { registerTableSit } from './handlers/table.sit.js';
 
 /**
  * @param {import('socket.io').Server} io
@@ -24,6 +25,7 @@ export function registerGameNamespace(io) {
     console.log('connected:', socket.data.userId);
 
     registerTableJoin(nsp, socket);
+    registerTableSit(nsp, socket);
 
     socket.on('disconnect', () => {
       console.log('disconnected:', socket.data.userId);

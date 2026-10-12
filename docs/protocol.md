@@ -161,3 +161,11 @@
 - all-in 加注幅度 < `minRaise` 时，**不重置**其他玩家的 `hasActedThisStreet`（不能再加注）
 - 但任何 `betThisStreet < currentBet` 的玩家仍必须行动一次（补差额或弃牌）
 - 多次短 all-in 累积达到 `minRaise` 时，仍然算一次完整加注，会重置行动
+## HandState 字段分工
+
+| 字段 | 含义 | 何时重置 |
+|---|---|---|
+| `betThisStreet` | 本街已下注 | **换街时** 清零 |
+| `totalCommitted` | 本手累计投入 | 从不重置，摊牌后用于 `buildPots` |
+| `chips` | 剩余筹码 | 递减 |
+| `hasActedThisStreet` | 本街是否已行动 | 换街或**合法加注**时重置 |
