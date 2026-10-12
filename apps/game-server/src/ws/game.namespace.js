@@ -3,6 +3,10 @@ import { registerTableJoin } from './handlers/table.join.js';
 import { registerTableSit } from './handlers/table.sit.js';
 import { registerTableReady } from './handlers/table.ready.js';
 import { registerGameAction } from './handlers/game.action.js';
+import {
+  handleDisconnect,
+  cancelPendingDisconnect,
+} from '../state/disconnectManager.js';
 
 export function registerGameNamespace(io) {
   const nsp = io.of('/game');
@@ -14,6 +18,7 @@ export function registerGameNamespace(io) {
       const payload = verifyJwt(token);
       socket.data.userId = payload.sub;
       socket.data.nickname = payload.nickname;
+      cancelPendingDisconnect(payload.sub);
       next();
     } catch {
       next(new Error('AUTH_FAILED'));
@@ -30,6 +35,7 @@ export function registerGameNamespace(io) {
 
     socket.on('disconnect', () => {
       console.log('disconnected:', socket.data.userId);
+      handleDisconnect(nsp, socket);
     });
   });
 }
