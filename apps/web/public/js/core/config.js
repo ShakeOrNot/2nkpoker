@@ -19,6 +19,8 @@ export const STORAGE_KEYS = {
   layout: '2nk.layout',
   /** '1' 时使用离线对手引擎 */
   offline: '2nk.offline',
+  /** 'auto' | 'local' | 'remote' —— 后端协议模式（remote = 另一种协议，需走适配层） */
+  proto: '2nk.proto',
 };
 
 export const DEFAULT_GAME_PORT = 3001;
@@ -126,6 +128,19 @@ export function gameNamespaceUrl(wsBase) {
  */
 export function roomFromQuery() {
   return (param('table') || '').trim();
+}
+
+/**
+ * 协议模式：'auto'（自动判断）| 'local'（本仓库 game-server）| 'remote'（另一种协议）
+ * 优先级：?proto= 参数 → localStorage → auto
+ * @returns {'auto'|'local'|'remote'}
+ */
+export function resolveProto() {
+  const fromQuery = param('proto').toLowerCase();
+  if (fromQuery === 'remote' || fromQuery === 'local' || fromQuery === 'auto') return fromQuery;
+  const saved = readStore(STORAGE_KEYS.proto);
+  if (saved === 'remote' || saved === 'local' || saved === 'auto') return saved;
+  return 'auto';
 }
 
 export { readStore };

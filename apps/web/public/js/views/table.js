@@ -438,16 +438,55 @@ export class TableView extends View {
       return;
     }
     const handId = last?.handId ?? hand?.handId ?? '';
-    if (this.resultDismissedFor === handId) return;
+    // 同一手牌只展示一次；想调试可临时打开 views.table._dbg
+    if (this.resultDismissedFor === handId) {
+      if (this._dbg) console.log('[table] 结算浮层已收起过，跳过', handId);
+      return;
+    }
 
     const pseudoHand = hand?.result
       ? hand
       : { ...(this.store.state.room.snapshot?.hand ?? {}), result: last.result, board: last.board };
-    const summary = settlement(pseudoHand);
+    let summary = settlement(pseudoHand);
+
+    // 兜底：某些后端（协议适配模式）的结算里可能没有 hand.seats，
+    // settlement() 就会返回空行。用最后一次快照的座位补上，别让浮层悄悄消失。
     if (!summary.rows.length) {
+      const seats = this.store.state.room.snapshot?.hand?.seats ?? [];
+      const payouts = pseudoHand?.result?.payouts ?? {};
+      const rows = seats.map((s) => {
+        const won = Number(payouts[s.seat] ?? 0);
+        const committed = s.totalCommitted ?? 0;
+        return {
+          seat: s.seat,
+          userId: s.userId,
+          nickname: s.nickname || `座位 ${s.seat}`,
+          won,
+          committed,
+          net: won - committed,
+          folded: Boolean(s.folded),
+          allIn: Boolean(s.allIn),
+          isWinner: won > 0,
+          refundOnly: won > 0 && won <= committed,
+          holeCards: pseudoHand?.result?.revealed?.[s.seat] ?? [],
+        };
+      });
+      rows.sort((a, b) => b.won - a.won || b.net - a.net);
+      const pots = pseudoHand?.result?.pots ?? [];
+      summary = {
+        rows,
+        totalPaid: pots.reduce((sum, p) => sum + (p.amount ?? 0), 0),
+        winnerSeats: rows.filter((r) => r.won > 0 && !r.refundOnly).map((r) => r.seat),
+        deadMoney: 0,
+      };
+    }
+
+    if (!summary.rows.length) {
+      // 兜底也拼不出行时不显示浮层（正常流程不会走到这里）
       this.resultOverlay.classList.remove('visible');
       return;
     }
+    if (this._dbg) console.log('[table] 显示结算浮层，行数 =', summary.rows.length);
 
     const mySeat = this.store.mySeat();
     const mine = summary.rows.find((r) => r.seat === mySeat);

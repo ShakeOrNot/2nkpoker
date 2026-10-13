@@ -32,10 +32,11 @@ let ioLib = null;
 let libPromise = null;
 
 /**
- * 懒加载 socket.io 客户端
+ * 懒加载 socket.io 客户端（多个 CDN 依次回退）。
+ * 供 GameSocket 与协议适配层（net/remote-protocol.js）共用。
  * @returns {Promise<any>}
  */
-function loadIoLib() {
+export function loadSocketIoClient() {
   if (globalThis.io) return Promise.resolve(globalThis.io);
   if (libPromise) return libPromise;
 
@@ -106,7 +107,7 @@ export class GameSocket {
   async connect({ wsBase, token }) {
     this.token = token;
     this.wsBase = wsBase;
-    const io = await loadIoLib();
+    const io = await loadSocketIoClient();
     this.close();
 
     const url = gameNamespaceUrl(wsBase);

@@ -285,14 +285,23 @@ export function potFractionTarget(input) {
   return Math.min(target, max);
 }
 
+/**
+ * 快捷下注比例（按底池的倍数）。
+ * 顺序 = 界面上按钮的左右顺序：由小到大。
+ * amount 的语义是"本街下注到的总额"，与 poker-engine/betSizing.js 的算法一致。
+ */
 const PRESETS = [
+  { key: 'third', label: '1/3 池', fraction: 1 / 3 },
   { key: 'half', label: '半池', fraction: 0.5 },
   { key: 'twoThirds', label: '2/3 池', fraction: 2 / 3 },
   { key: 'full', label: '满池', fraction: 1 },
+  { key: 'onePointTwo', label: '1.2 池', fraction: 1.2 },
 ];
 
 /**
- * 生成快捷下注按钮（跟注 / 半池 / 2/3 池 / 满池 / 最小加注 / 全下）
+ * 生成快捷下注按钮：
+ *   跟注 / 1/3 池 / 半池 / 2/3 池 / 满池 / 1.2 池 / 最小下注(加注) / 全下
+ * 低于最小下注额或与自己筹码上限重复的项会被自动跳过（避免出现无效按钮）。
  * @param {any} hand
  * @param {number|null} seat
  * @returns {Array<{ key: string, label: string, amount: number, kind: 'call'|'preset'|'min'|'allin', fraction?: number }>}
@@ -460,6 +469,66 @@ export function chipDelta(hand) {
     out.set(s.seat, (s.chips ?? 0) - stackBefore);
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * 牌面格式互转（对接不同后端时用）
+ * ------------------------------------------------------------------ */
+
+/** 我们内部的写法是 rank + 字母花色：'As' / 'Td' / '2c' */
+
+const SUIT_TO_SYMBOL = { s: '♠', h: '♥', d: '♦', c: '♣' };
+
+/** 符号花色 → 字母花色（同时接受本来就是字母的写法） */
+const SYMBOL_TO_SUIT = {
+  '♠': 's', '♥': 'h', '♦': 'd', '♣': 'c',
+  s: 's', h: 'h', d: 'd', c: 'c',
+  S: 's', H: 'h', D: 'd', C: 'c',
+};
+
+/**
+ * 我们的牌 → 符号写法：'As' → 'A♠'
+ * @param {string} card
+ * @returns {string}
+ */
+export function cardToSymbol(card) {
+  if (typeof card !== 'string' || card.length < 2) return String(card ?? '');
+  const rank = card.slice(0, -1).toUpperCase();
+  const suit = SUIT_TO_SYMBOL[card.slice(-1).toLowerCase()];
+  return suit ? `${rank}${suit}` : String(card);
+}
+
+/**
+ * 符号写法 → 我们的牌：'A♠' → 'As'；本来就是 'As' 时原样返回
+ * @param {string} card
+ * @returns {string} 无法识别时返回空串
+ */
+export function cardFromSymbol(card) {
+  if (typeof card !== 'string') return '';
+  const text = card.trim();
+  if (!text) return '';
+  if (text.length === 2) {
+    const mapped = SYMBOL_TO_SUIT[text[1]];
+    if (mapped) return `${text[0].toUpperCase()}${mapped}`;
+  }
+  // 兼容 '10♠' / '10s'
+  const m = /^(10|[2-9TJQKA])\s*(.)$/i.exec(text);
+  if (m) {
+    const rank = m[1].toUpperCase() === '10' ? 'T' : m[1].toUpperCase();
+    const mapped = SYMBOL_TO_SUIT[m[2]];
+    if (mapped) return `${rank}${mapped}`;
+  }
+  return '';
+}
+
+/**
+ * 整段牌数组转换（无法识别的会被丢掉）
+ * @param {string[]} cards
+ * @returns {string[]}
+ */
+export function cardsFromSymbols(cards) {
+  if (!Array.isArray(cards)) return [];
+  return cards.map(cardFromSymbol).filter(Boolean);
 }
 
 /* ------------------------------------------------------------------ *

@@ -239,6 +239,58 @@ describe('快捷下注按钮', () => {
     expect(quicks[quicks.length - 1].amount).toBe(1000);
   });
 
+  it('五个底池比例按钮齐全，且按金额从小到大排列', () => {
+    const quicks = quickBets(hand({ pot: 100 }), 0).filter((q) => q.kind === 'preset');
+    expect(quicks.map((q) => q.key)).toEqual(['third', 'half', 'twoThirds', 'full', 'onePointTwo']);
+    expect(quicks.map((q) => q.fraction)).toEqual([1 / 3, 0.5, 2 / 3, 1, 1.2]);
+    for (let i = 1; i < quicks.length; i++) {
+      expect(quicks[i].amount > quicks[i - 1].amount).toBe(true);
+    }
+  });
+
+  it('1/3 池：无人下注 = round(pot/3)，且不低于大盲', () => {
+    const q = quickBets(hand({ pot: 100 }), 0).find((x) => x.key === 'third');
+    expect(q.amount).toBe(33);
+    expect(q.label).toBe('1/3 池 33');
+    // 底池 30、大盲 20 → 10 被抬到大盲
+    expect(quickBets(hand({ pot: 30, bigBlind: 20 }), 0).find((x) => x.key === 'third').amount).toBe(20);
+  });
+
+  it('1/3 池：有人下注 = currentBet + (1/3)(pot + 2×toCall)', () => {
+    // pot=100, currentBet=50, toCall=50 → 50 + 200/3 = 116.67 → 117
+    const q = quickBets(hand({ currentBet: 50, pot: 100 }), 0).find((x) => x.key === 'third');
+    expect(q.amount).toBe(117);
+  });
+
+  it('1.2 池：无人下注 = round(1.2 × pot)', () => {
+    const q = quickBets(hand({ pot: 100 }), 0).find((x) => x.key === 'onePointTwo');
+    expect(q.amount).toBe(120);
+    expect(q.label).toBe('1.2 池 120');
+    expect(quickBets(hand({ pot: 200 }), 0).find((x) => x.key === 'onePointTwo').amount).toBe(240);
+  });
+
+  it('1.2 池：有人下注时是超额加注（一定大于满池）', () => {
+    // pot=400, currentBet=100, myBet=0 → toCall=100 → 100 + 1.2×600 = 820
+    const h = hand({ currentBet: 100, pot: 400 });
+    const oneTwo = quickBets(h, 0).find((x) => x.key === 'onePointTwo');
+    const full = quickBets(h, 0).find((x) => x.key === 'full');
+    expect(oneTwo.amount).toBe(820);
+    expect(full.amount).toBe(700);
+    expect(oneTwo.amount > full.amount).toBe(true);
+  });
+
+  it('筹码不够时两个新按钮会被截断或跳过，绝不超出筹码上限', () => {
+    const h = hand({
+      pot: 5000,
+      seats: [{ seat: 0, chips: 150, betThisStreet: 0, totalCommitted: 0, folded: false, allIn: false }],
+    });
+    for (const q of quickBets(h, 0)) {
+      expect(q.amount <= 150).toBe(true);
+    }
+    // 150 筹码够不到任何比例的合法下注额 → 只剩最小下注与全下
+    expect(quickBets(h, 0).map((q) => q.key)).toEqual(['min', 'allin']);
+  });
+
   it('所有快捷金额都不超过自己筹码上限', () => {
     const h = hand({
       currentBet: 0,

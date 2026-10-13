@@ -6,7 +6,25 @@
      auto      跟随屏幕方向（媒体查询）
      portrait  强制竖屏布局
      landscape 强制横屏布局（椭圆牌桌）
+
+   文件按"界面区域"分块，顺序 = 从外到内、从上到下：
+     1  全局变量（配色/圆角/安全区）
+     2  全局重置与基础排版
+     3  右上角工具条（布局切换 + 连接状态点）   → js/app.js
+     4  顶部红色错误条                          → js/app.js + index.html 兜底
+     5  视图容器（登录/大厅/等待室/牌桌四选一）  → js/app.js
+     6  通用组件（按钮/输入框/卡片/徽标/胶囊…）  → js/views/base.js、cards.js
+     7  登录页                                  → js/views/login.js
+     8  大厅页（牌局列表 + 创建牌局）            → js/views/lobby.js
+     9  等待室页（座位表 + 坐下/准备）           → js/views/waiting.js
+    10  牌桌页（底池/公共牌/座位/手牌/操作栏）   → js/views/table.js、controls.js
+    11  结算浮层（谁赢了 + 筹码变化）            → js/views/table.js
+    12  吐司提示（右下角短提示）                 → js/core/dom.js
+    13  响应式：横屏/平板/超窄屏/大平板
    ========================================================================== */
+
+/* ---------------------------------------------------------------- 1. 全局变量 */
+/* 所有区域共用的色板与尺寸；改这里能一次性换肤 */
 
 :root {
   --felt-1: #17402f;
@@ -30,11 +48,15 @@
   --header-h: 48px;
 }
 
+/* ---------------------------------------------------------------- 2. 全局重置 */
+/* 页面底色/字体/禁止橡皮筋滚动；下面 body 做成纵向 flex，让内容撑满一屏 */
+
 * {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
 }
 
+/* 页面根：深色底 + 中文字体栈 + 移动端禁止整页回弹 */
 html,
 body {
   margin: 0;
@@ -48,23 +70,28 @@ body {
   overscroll-behavior: none;
 }
 
+/* 页面骨架：#toolbar 悬浮、#views 占满剩余高度 */
 body {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
 }
 
+/* 表单控件继承页面字体与颜色（iOS 默认样式很丑） */
 button,
 input {
   font: inherit;
   color: inherit;
 }
 
+/* 全局显隐开关：视图切换、面板切换都用它，!important 保证能压过 display:flex */
 .hidden {
   display: none !important;
 }
 
-/* ---------------------------------------------------------------- 工具条 */
+/* ---------------------------------------------------------------- 3. 工具条 */
+/* 界面：右上角悬浮小条 —— 「布局：自动/竖屏/横屏」按钮 + 连接状态圆点
+   代码：js/app.js 里创建，html 里只有空的 <div id="toolbar"> */
 
 #toolbar {
   position: fixed;
@@ -76,6 +103,7 @@ input {
   gap: 6px;
 }
 
+/* 布局切换按钮（胶囊形） */
 .toolbar-btn {
   border: 1px solid var(--line);
   background: rgba(23, 27, 33, 0.9);
@@ -86,6 +114,7 @@ input {
   line-height: 1;
 }
 
+/* 连接状态圆点：颜色由 js/app.js 按 state.connection 切换下面的四个类 */
 .conn-dot {
   width: 10px;
   height: 10px;
@@ -94,12 +123,15 @@ input {
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
 }
 
+/* 绿=已连接 / 黄=连接中 / 红=已断开 / 灰=未连接或离线练习 */
 .conn-ok { background: var(--green); }
 .conn-warn { background: var(--orange); }
 .conn-bad { background: var(--red); }
 .conn-idle { background: var(--muted); }
 
-/* ---------------------------------------------------------------- 错误条 */
+/* ---------------------------------------------------------------- 4. 错误条 */
+/* 界面：页面顶部居中的红色提示条，任何失败都会弹这里（不再"点了没反应"）
+   代码：store.reportError() 写文案并加 .visible；js/app.js 兜未捕获异常 */
 
 #error-banner {
   display: none;
@@ -121,7 +153,10 @@ input {
 
 #error-banner.visible { display: block; }
 
-/* ---------------------------------------------------------------- 视图容器 */
+/* ---------------------------------------------------------------- 5. 视图容器 */
+/* 界面：整个 App 的舞台 —— 登录 / 大厅 / 等待室 / 牌桌 四个视图同时存在于 DOM，
+   只有当前阶段那一个去掉 .hidden，其余 display:none。
+   代码：js/app.js 的 showPhase() 负责切换；js/views/base.js 的 mount/unmount。 */
 
 #views {
   flex: 1;
@@ -130,6 +165,7 @@ input {
   position: relative;
 }
 
+/* 单个视图：默认隐藏，只有带 .view-active 的那个显示 */
 .view {
   display: none;
   flex: 1;
@@ -141,8 +177,12 @@ input {
   display: flex;
 }
 
-/* ---------------------------------------------------------------- 通用组件 */
+/* ---------------------------------------------------------------- 6. 通用组件 */
+/* 被四个视图共用的基础件：按钮、输入框、滑块、卡片、字段、行布局、提示文字、
+   徽标、胶囊按钮、提示块、空状态。
+   代码：js/views/base.js 的 button()/node()/tag()、js/views/cards.js */
 
+/* 按钮基础：深灰底 + 按下缩放反馈；变体见下方 primary/accent/ghost/sm/lg */
 .btn {
   border: 1px solid var(--line);
   background: #222833;
@@ -203,9 +243,10 @@ input {
   flex: 1;
 }
 
+/* 输入框：用户名、房号、后端地址、带入筹码、自定义下注金额 */
 .input {
   width: 100%;
-  background: #12161c;
+  background: #edeff2;/*修改处*/
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px 14px;
@@ -220,17 +261,20 @@ input {
   opacity: 0.5;
 }
 
+/* 数字输入（带入筹码/下注金额）：等宽数字，避免位数变化时抖动 */
 .input-number {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.5px;
 }
 
+/* 下注金额滑块（操作栏里，范围 0 ~ 自己筹码上限） */
 .slider {
   width: 100%;
   margin: 10px 0 4px;
   accent-color: var(--accent);
 }
 
+/* 卡片：所有页面里的内容分块容器（房号卡、座位卡、创建表单卡…） */
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -239,6 +283,7 @@ input {
   margin: 0 0 12px;
 }
 
+/* 卡片变体：flat=更深底（大厅"用房号加入"），hero=渐变底（等待室房号） */
 .card-flat {
   background: #14181e;
 }
@@ -259,6 +304,7 @@ input {
   color: var(--muted);
 }
 
+/* 表单字段：标签 + 控件成组（登录、创建牌局、带入筹码） */
 .field {
   margin-bottom: 12px;
 }
@@ -270,6 +316,7 @@ input {
   margin-bottom: 6px;
 }
 
+/* 横向排布行：紧凑 row-tight、两端对齐 row-between */
 .row {
   display: flex;
   gap: 8px;
@@ -284,12 +331,14 @@ input {
   justify-content: space-between;
 }
 
+/* 小字说明（灰）：各种"注意事项"文案 */
 .hint {
   font-size: 12px;
   color: var(--muted);
   margin: 6px 0;
 }
 
+/* 状态徽标：牌局列表的"进行中/我创建的"、等待室的"已准备/断线" */
 .badge {
   display: inline-block;
   padding: 2px 7px;
@@ -313,6 +362,10 @@ input {
   flex-wrap: wrap;
 }
 
+/* 胶囊按钮（chip）：被三处复用 ——
+   1) 创建牌局的"座位数 2~6 / 盲注档位 / 带入倍数"选项（.chip-active = 选中）
+   2) 牌桌操作栏的快捷下注（.chip-action + call/preset/min/allin 描边）
+   3) 大厅/等待室里的小选项 */
 .chip {
   border: 1px solid var(--line);
   background: #1b2029;
@@ -342,6 +395,8 @@ input {
 .chip-min { border-color: #4a4a55; }
 .chip-allin { border-color: #8a3b3f; color: #ffb3b5; }
 
+/* 提示块（notice）：登录页"连不上后端"、等待室"牌局已开始"等横幅
+   visible=显示；warn 黄/ok 绿/live 红三种语气 */
 .notice {
   display: none;
   border-radius: var(--radius-sm);
@@ -359,6 +414,7 @@ input {
 .notice-ok { border-color: #2f6f4f; background: rgba(53, 192, 122, 0.08); color: #9fe3bf; }
 .notice-live { border-color: #7a2f31; background: rgba(229, 72, 77, 0.08); color: #ffb3b5; }
 
+/* 空状态（empty-state）：大厅没有任何牌局时的"还没有牌局"占位 */
 .empty-state {
   text-align: center;
   padding: 28px 12px;
@@ -370,13 +426,18 @@ input {
   opacity: 0.5;
 }
 
-/* ---------------------------------------------------------------- 登录页 */
+/* ---------------------------------------------------------------- 7. 登录页 */
+/* 界面：输入用户名 → 进入牌局大厅 / 离线练习（首屏大按钮）/ 后端状态条 /
+       「服务器与高级设置」折叠区（后端地址、手动 JWT、默认离线开关）
+   代码：js/views/login.js */
 
+/* 页面本身：内容垂直居中，留出底部安全区 */
 .view-login {
   justify-content: center;
   padding: 24px 18px calc(24px + var(--safe-bottom));
 }
 
+/* 登录卡片：一张居中的面板，最大宽度 460（平板上不至于拉得太宽） */
 .login-card {
   width: 100%;
   max-width: 460px;
@@ -388,6 +449,7 @@ input {
   box-shadow: var(--shadow);
 }
 
+/* 品牌区：♠ 图标 + 标题 + 一行副标题 */
 .brand {
   display: flex;
   gap: 12px;
@@ -395,6 +457,7 @@ input {
   margin-bottom: 18px;
 }
 
+/* ♠ 品牌图标（渐变方块） */
 .brand-mark {
   width: 46px;
   height: 46px;
@@ -406,6 +469,7 @@ input {
   color: #fff;
 }
 
+/* 品牌文字：主标题 + 副标题 */
 .brand-text h1 {
   margin: 0;
   font-size: 20px;
@@ -417,6 +481,7 @@ input {
   color: var(--muted);
 }
 
+/* 表单内联错误（保留样式；现在失败统一走顶部错误条 + toast） */
 .form-error {
   display: none;
   color: #ff9a9c;
@@ -426,6 +491,7 @@ input {
 
 .form-error.visible { display: block; }
 
+/* 「服务器与高级设置」折叠区：后端地址 / WebSocket 地址 / 手动 JWT / 默认离线开关 */
 .login-advanced {
   margin-top: 14px;
   border-top: 1px solid var(--line);
@@ -443,7 +509,8 @@ input {
   padding-top: 6px;
 }
 
-/* 启动失败提示（见 index.html 里的内联兜底脚本） */
+/* 启动失败提示（index.html 里的内联兜底脚本往里写原因：
+   file:// 打开、app.js 没加载、脚本被拦截等） */
 #boot-placeholder {
   justify-content: center;
   padding: 24px 18px;
@@ -474,7 +541,7 @@ input {
   color: var(--muted);
 }
 
-/* 登录页：分隔线 + 后端状态条 */
+/* 分隔线：登录按钮与"离线练习"之间的"或" */
 .divider {
   display: flex;
   align-items: center;
@@ -492,6 +559,7 @@ input {
   background: var(--line);
 }
 
+/* 后端状态条：「后端状态：可连接 / 连不上」+「测试后端连接」按钮 */
 .server-strip {
   display: flex;
   align-items: center;
@@ -512,8 +580,13 @@ input {
 .status-fail { color: var(--orange); }
 .status-idle { color: var(--muted); }
 
-/* ---------------------------------------------------------------- 大厅 */
+/* ---------------------------------------------------------------- 8. 大厅页 */
+/* 界面：顶部栏（头像+昵称+退出）→ 「加入牌局 / 创建牌局」页签 →
+       加入：牌局列表（房号/人数/进行中/我创建的 + 加入/邀请/删除）+ 用房号加入
+       创建：座位数、盲注档位、带入筹码 → 「创建并进入等待室」
+   代码：js/views/lobby.js（列表与创建两个面板，切页签时用 attach() 保证已挂载） */
 
+/* 所有页面的顶部栏：返回/标题/右侧操作；sticky 吸顶 + 毛玻璃 */
 .app-header {
   display: flex;
   align-items: center;
@@ -521,13 +594,14 @@ input {
   padding: calc(8px + var(--safe-top)) 12px 8px;
   min-height: var(--header-h);
   border-bottom: 1px solid var(--line);
-  background: rgba(13, 16, 19, 0.92);
+  background: rgba(37, 43, 55, 0.92);/*顶部条*/
   backdrop-filter: blur(8px);
   position: sticky;
   top: 0;
   z-index: 20;
 }
 
+/* 顶栏三段：左侧返回按钮、中间标题、右侧操作按钮组 */
 .header-title {
   flex: 1;
   text-align: center;
@@ -541,6 +615,7 @@ input {
   align-items: center;
 }
 
+/* 顶栏左侧：头像 + 昵称（昵称过长省略号） */
 .who {
   display: flex;
   align-items: center;
@@ -566,6 +641,7 @@ input {
   max-width: 40vw;
 }
 
+/* 「加入牌局 / 创建牌局」页签容器 + 页签按钮（.tab-active = 当前页签） */
 .tabs {
   display: flex;
   gap: 6px;
@@ -575,7 +651,7 @@ input {
 .tab {
   flex: 1;
   border: 1px solid var(--line);
-  background: #14181e;
+  background: #22303f;
   color: var(--muted);
   border-radius: 10px;
   padding: 10px;
@@ -583,17 +659,19 @@ input {
 }
 
 .tab-active {
-  background: #1b2430;
+  background: #202933;
   color: var(--text);
   border-color: #3b82f6;
 }
 
+/* 大厅滚动区（页签下方的全部内容） */
 .lobby-body {
   padding: 12px;
   padding-bottom: calc(24px + var(--safe-bottom));
   overflow-y: auto;
 }
 
+/* 列表工具条：「刷新」+ 牌局数量 / 离线练习标记 */
 .list-bar {
   display: flex;
   align-items: center;
@@ -601,12 +679,14 @@ input {
   margin-bottom: 10px;
 }
 
+/* 牌局列表：一行一个牌局卡 */
 .room-list {
   display: grid;
   gap: 10px;
   margin-bottom: 14px;
 }
 
+/* 牌局卡：左侧信息（房号 + 徽标 + 盲注/人数/时间），右侧按钮（加入/邀请/删除） */
 .room-card {
   display: flex;
   gap: 10px;
@@ -629,12 +709,14 @@ input {
   gap: 4px;
 }
 
+/* 牌局卡内的房号（等宽加粗，方便念给朋友听） */
 .room-id {
   font-weight: 700;
   font-size: 17px;
   letter-spacing: 1px;
 }
 
+/* 房号旁的元信息：盲注/人数/创建时间 + 本机记录标记 */
 .room-meta {
   display: flex;
   flex-wrap: wrap;
@@ -648,6 +730,7 @@ input {
   color: #7fb0ff;
 }
 
+/* 牌局卡右侧：竖排按钮（加入 + 邀请/删除） */
 .room-side {
   display: flex;
   flex-direction: column;
@@ -660,14 +743,20 @@ input {
   gap: 4px;
 }
 
-/* ---------------------------------------------------------------- 等待室 */
+/* ---------------------------------------------------------------- 9. 等待室 */
+/* 界面：房号大卡（复制邀请链接）→ 状态提示（"牌局已开始，等下一手"/"请准备"）→
+       座位网格（2~6 格，可点空位入座）→ 带入筹码 + 坐下/准备/离座 →
+       进行中牌局预览（阶段/底池/公共牌/仍在局中的人）
+   代码：js/views/waiting.js */
 
+/* 等待室滚动区 */
 .waiting-body {
   padding: 12px;
   padding-bottom: calc(24px + var(--safe-bottom));
   overflow-y: auto;
 }
 
+/* 房号大字号展示（方便念给朋友 / 截图分享） */
 .room-id-big {
   font-size: 26px;
   font-weight: 800;
@@ -680,12 +769,14 @@ input {
   color: var(--muted);
 }
 
+/* 座位网格：竖屏 2 列（平板 3 列，见文件末尾媒体查询） */
 .seat-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
+/* 单个座位格：座位号 / 昵称 / 筹码 / 状态徽标；空位是虚线框 */
 .seat-cell {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -697,6 +788,7 @@ input {
   gap: 3px;
 }
 
+/* 座位状态：空位 / 我 / 已准备 / 断线 */
 .seat-cell.seat-empty { opacity: 0.62; border-style: dashed; }
 .seat-cell.seat-me { border-color: var(--green); box-shadow: inset 0 0 0 1px rgba(53, 192, 122, 0.3); }
 .seat-cell.seat-ready { background: rgba(53, 192, 122, 0.07); }
@@ -707,6 +799,7 @@ input {
 .seat-chips { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .seat-badges { display: flex; flex-wrap: wrap; gap: 2px; margin-top: auto; }
 
+/* 进行中牌局预览：阶段 / 底池 / 公共牌 / 仍在局中的人 */
 .live-info {
   display: grid;
   gap: 4px;
@@ -714,17 +807,28 @@ input {
   color: var(--muted);
 }
 
-/* ---------------------------------------------------------------- 牌桌 */
+/* ---------------------------------------------------------------- 10. 牌桌页 */
+/* 界面自上而下：
+     顶栏（房号 + 连接状态 + 邀请 / 日志）
+     牌毡（底池 + 阶段 + 公共牌 + 座位）
+     我的区域（两张底牌 + 昵称位置 + 筹码 + 当前牌型）
+     操作栏（弃牌/过牌/跟注 + 自定义金额 + 快捷下注 + 加注/全下）
+     旁观条（没入座时替代操作栏）
+     日志面板（点「日志」从右侧滑出）
+   代码：js/views/table.js（结构）、js/views/controls.js（操作栏）、js/views/cards.js（牌面） */
 
+/* 牌桌整页：内部自己滚动，不带动整页 */
 .view-table {
   position: relative;
   overflow: hidden;
 }
 
+/* 牌桌顶栏：比大厅顶栏矮一点，把高度让给牌桌 */
 .table-header {
   min-height: 44px;
 }
 
+/* 顶栏中间：房号 + 连接状态两行小字 */
 .table-info {
   min-width: 0;
 }
@@ -739,6 +843,7 @@ input {
   color: var(--muted);
 }
 
+/* 牌桌主体：牌毡 + 日志面板（日志绝对定位浮在上面） */
 .table-main {
   flex: 1;
   display: flex;
@@ -746,6 +851,7 @@ input {
   position: relative;
 }
 
+/* 牌毡：绿色径向渐变，纵向排列「底池 → 公共牌 → 座位」 */
 .table-felt {
   flex: 1;
   display: flex;
@@ -758,6 +864,7 @@ input {
   overflow: hidden;
 }
 
+/* 底池胶囊：「底池 1.2k | 翻牌」 */
 .pot-row {
   display: flex;
   align-items: center;
@@ -770,11 +877,13 @@ input {
 
 .pot-label { font-size: 12px; color: #b9c6b6; }
 
+/* 底池金额（等宽数字，跳动时不抖） */
 .pot-value {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
+/* 阶段标签：翻牌前 / 翻牌 / 转牌 / 河牌 / 已结算 */
 .street-tag {
   font-size: 12px;
   color: #cfe3d7;
@@ -782,17 +891,23 @@ input {
   padding-left: 8px;
 }
 
-/* 牌 */
+/* --- 牌面 --- 由 js/views/cards.js 生成：
+   cardRow（一手牌）、boardEl（公共牌 5 个槽位）、cardEl（单张）
+   lg=公共牌/我的底牌，md=结算浮层，sm=座位上别人的小牌 */
+
+/* 一组牌横向排列 */
 .card-row {
   display: flex;
   gap: 4px;
 }
 
+/* 公共牌 5 张一排 */
 .board {
   display: flex;
   gap: 6px;
 }
 
+/* 单张牌：白底圆角；尺寸由 lg/md/sm 决定 */
 .card {
   display: inline-grid;
   place-items: center;
@@ -804,23 +919,28 @@ input {
   line-height: 1;
 }
 
+/* 三种尺寸：lg 公共牌/我的底牌、md 结算浮层、sm 座位上别人的牌 */
 .card-lg { width: 42px; height: 60px; font-size: 20px; }
 .card-md { width: 36px; height: 50px; font-size: 17px; }
 .card-sm { width: 26px; height: 36px; font-size: 13px; border-radius: 4px; }
 
+/* 红桃/方块红色 */
 .card-red { color: #d3312f; }
 
+/* 牌背（别人未亮牌时的两张暗牌） */
 .card-back {
   background: repeating-linear-gradient(45deg, #2a4f8a, #2a4f8a 4px, #23406f 4px, #23406f 8px);
   border: 1px solid #16294a;
 }
 
+/* 空牌位：公共牌还没发到的槽位（虚线框） */
 .card-slot {
   background: rgba(255, 255, 255, 0.06);
   box-shadow: none;
   border: 1px dashed rgba(255, 255, 255, 0.18);
 }
 
+/* dim=已弃牌变暗；hi=结算时赢家的牌高亮金边 */
 .card-dim { opacity: 0.45; }
 .card-hi { outline: 2px solid var(--accent); }
 
@@ -829,7 +949,9 @@ input {
   color: var(--muted);
 }
 
-/* 座位 */
+/* --- 牌桌座位 --- 每个座位卡片显示：位置名/庄家、昵称、筹码、本街下注、手牌、状态角标
+   两种排布见下方 .seats-portrait（竖屏）与 .seats-oval（横屏/平板） */
+
 .seats {
   flex: 1;
   width: 100%;
@@ -837,8 +959,8 @@ input {
   position: relative;
 }
 
+/* 座位卡基础外观（半透明，压在牌毡上） */
 .seat {
-  border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(10, 20, 16, 0.72);
   border-radius: 12px;
   padding: 7px 10px;
@@ -849,6 +971,7 @@ input {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
+/* 座位卡顶部：位置名（BTN/SB/BB/UTG/HJ/CO），金色小字 */
 .seat-top {
   font-size: 10px;
   color: var(--accent);
@@ -856,6 +979,7 @@ input {
   letter-spacing: 1px;
 }
 
+/* 昵称（过长省略号） */
 .seat-name {
   font-size: 13px;
   font-weight: 600;
@@ -865,12 +989,14 @@ input {
   max-width: 100%;
 }
 
+/* 剩余筹码 */
 .seat-chips {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: #d7e6dd;
 }
 
+/* 本街已下注（>0 时才显示，金色） */
 .seat-bet {
   display: none;
   font-size: 11px;
@@ -880,18 +1006,21 @@ input {
 
 .seat-bet.visible { display: block; }
 
+/* 座位上的两张牌位置（别人未亮牌时是牌背） */
 .seat-cards {
   display: flex;
   gap: 3px;
   min-height: 0;
 }
 
+/* 角标容器 */
 .seat-tags {
   display: flex;
   gap: 3px;
   flex-wrap: wrap;
 }
 
+/* 座位上的角标：D=庄家、ALL IN、点按入座 */
 .tag {
   font-size: 9px;
   padding: 1px 4px;
@@ -903,6 +1032,7 @@ input {
 .tag-allin { background: #e5484d; color: #fff; font-weight: 700; }
 .tag-sit { background: rgba(59, 130, 246, 0.25); color: #9dc2ff; }
 
+/* 结算后座位上的筹码净变化（+绿 / −红），平时隐藏 */
 .seat-delta {
   display: none;
   font-size: 12px;
@@ -914,6 +1044,9 @@ input {
 .delta-up { color: var(--green); }
 .delta-down { color: #ff9a9c; }
 
+/* 座位状态（由 js 按快照切换）：
+   empty=空位可点入座、offline=断线、folded=已弃牌、me=我自己、
+   turn=当前行动者（金色发光）、allin=全下、winner=本手赢家 */
 .seat-empty { opacity: 0.5; border-style: dashed; }
 .seat-offline { opacity: 0.6; }
 .seat-folded { opacity: 0.55; }
@@ -925,7 +1058,7 @@ input {
 .seat-allin { border-color: rgba(229, 72, 77, 0.8); }
 .seat-winner { border-color: var(--accent); background: rgba(246, 196, 83, 0.14); }
 
-/* 竖屏：座位纵向排队 */
+/* 【布局一】竖屏：座位纵向排队，一列到底（自己永远在最下方，由 JS 决定顺序） */
 .seats-portrait {
   display: flex;
   flex-direction: column;
@@ -948,7 +1081,7 @@ input {
 .seats-portrait .seat-tags { margin-left: auto; }
 .seats-portrait .seat-delta { margin-left: auto; }
 
-/* 横屏/平板：椭圆牌桌，座位按 JS 算好的角度绝对定位 */
+/* 【布局二】横屏/平板：椭圆牌桌 —— 座位用 JS 算好的角度绝对定位（--seat-x/--seat-y） */
 .seats-oval {
   display: block;
 }
@@ -967,7 +1100,7 @@ input {
 .seats-oval .seat-tags { justify-content: center; }
 .seats-oval .seat-name { max-width: 108px; }
 
-/* 我的手牌区 */
+/* --- 我的区域 --- 右下角常驻：我的两张底牌 + 昵称/位置 + 筹码 + 当前牌型 */
 .my-zone {
   padding: 8px 12px 4px;
   background: rgba(13, 16, 19, 0.94);
@@ -986,9 +1119,15 @@ input {
 
 .my-name { font-weight: 600; font-size: 14px; }
 .my-chips { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* 当前最好牌型提示（高牌/一对/…/皇家同花顺） */
 .my-hand { font-size: 12px; color: var(--accent); }
 
-/* 操作栏 */
+/* --- 操作栏 --- 由 js/views/controls.js 生成，四行：
+     1) 弃牌 / 过牌 / 跟注
+     2) 自定义金额（输入框 + −/+ 步进 + 滑块）
+     3) 快捷下注（跟注/半池/2/3池/满池/最小加注/全下）
+     4) 加注确认 + 全下
+   没轮到我时整块变暗且不可点（.controls-idle） */
 .controls {
   padding: 8px 12px calc(10px + var(--safe-bottom));
   background: #12161c;
@@ -999,6 +1138,7 @@ input {
   position: relative;
 }
 
+/* 非我回合：操作栏半透明并屏蔽点击（防止误操作） */
 .controls-idle .ctrl-row,
 .controls-idle .ctrl-amount,
 .controls-idle .ctrl-quicks,
@@ -1012,22 +1152,26 @@ input {
   gap: 8px;
 }
 
+/* 第一行三个主按钮等宽平分、字大一点（方便拇指点） */
 .ctrl-primary .btn {
   flex: 1;
   padding: 14px 8px;
   font-size: 16px;
 }
 
+/* 四个动作按钮配色：弃牌灰、过牌绿、跟注蓝、全下红 */
 .btn-fold { background: #262b34; color: #cbd3dd; }
 .btn-check { background: #1f4d3a; border-color: #2b6a4f; }
 .btn-call { background: #1f3a5c; border-color: #2c5480; }
 .btn-allin { background: #7f2f33; border-color: #a03b40; }
 
+/* 金额区：标签 + 输入框 + 步进 + 滑块 + 提示文字 */
 .ctrl-amount {
   display: flex;
   flex-direction: column;
 }
 
+/* 快捷下注胶囊横向滚动条（手机上可左右滑） */
 .ctrl-quicks {
   display: flex;
   gap: 6px;
@@ -1041,14 +1185,17 @@ input {
   flex: 0 0 auto;
 }
 
+/* 金额提示行：占底池百分比 / 可用筹码 / 超额时的错误原因 */
 .amount-hint {
   font-size: 12px;
   color: var(--muted);
   min-height: 16px;
 }
 
+/* 金额超限时的红色提示 */
 .amount-error { color: #ffb3b5; }
 
+/* 非我回合的占位文案："等待 XXX 行动…" */
 .ctrl-waiting {
   text-align: center;
   font-size: 13px;
@@ -1061,6 +1208,7 @@ input {
 .ctrl-disabled.visible ~ .ctrl-waiting,
 .controls-active .ctrl-waiting { display: none; }
 
+/* − / + 步进按钮（按住可微调下注额） */
 .btn-step {
   width: 44px;
   flex: 0 0 44px;
@@ -1069,7 +1217,7 @@ input {
   padding: 10px 0;
 }
 
-/* 旁观条 */
+/* --- 旁观条 --- 没入座时替代操作栏："你正在旁观" + 「入座并等待下一手」 */
 .spectate-bar {
   display: none;
   align-items: center;
@@ -1084,7 +1232,7 @@ input {
 
 .spectate-bar.visible { display: flex; }
 
-/* 日志 */
+/* --- 牌局日志 --- 点右上角「日志」从右侧滑出的面板（时间 + 文案） */
 .log-panel {
   position: absolute;
   right: 0;
@@ -1119,13 +1267,18 @@ input {
   gap: 5px;
 }
 
+/* 日志行：时间戳 + 文案；warn/error/result 三种着色 */
 .log-line { display: flex; gap: 6px; color: #c7d1dc; }
 .log-time { color: #6b7785; font-variant-numeric: tabular-nums; }
 .log-warn .log-text { color: var(--orange); }
 .log-error .log-text { color: #ff9a9c; }
 .log-result .log-text { color: var(--accent); }
 
-/* 结算浮层 */
+/* ---------------------------------------------------------------- 11. 结算浮层 */
+/* 界面：一手结束后弹出的居中卡片 —— 大字结论（你赢了/输了 X）、分层底池、
+       公共牌、每个人的亮牌与 ±筹码、孤池说明；点一下或 6 秒后自动收起
+   代码：js/views/table.js 的 renderResult() */
+
 .result-overlay {
   position: fixed;
   inset: 0;
@@ -1140,6 +1293,7 @@ input {
 
 .result-overlay.visible { display: flex; }
 
+/* 结算卡：弹出缩放动画，内容超高时自己滚动 */
 .result-card {
   width: 100%;
   max-width: 420px;
@@ -1158,6 +1312,7 @@ input {
   to { transform: scale(1); opacity: 1; }
 }
 
+/* 结论大字：赢绿 / 输红 */
 .result-headline {
   margin: 0 0 12px;
   font-size: 22px;
@@ -1174,6 +1329,7 @@ input {
   margin-bottom: 10px;
 }
 
+/* 本轮摊开的公共牌 + "公共牌"标签 */
 .result-board {
   display: flex;
   align-items: center;
@@ -1190,6 +1346,7 @@ input {
   gap: 6px;
 }
 
+/* 每人一行：昵称 + 亮出的牌（或"已弃牌"）+ 本手 ±筹码 */
 .result-line {
   display: flex;
   align-items: center;
@@ -1200,6 +1357,7 @@ input {
   border: 1px solid transparent;
 }
 
+/* 每人一行的状态：me=我自己（绿边）、win=赢（浅绿底）、lose=输（压暗） */
 .result-line.me { border-color: rgba(53, 192, 122, 0.5); }
 .result-line.win { background: rgba(53, 192, 122, 0.09); }
 .result-line.lose { opacity: 0.75; }
@@ -1215,6 +1373,7 @@ input {
 .result-cards { flex: 0 0 auto; }
 .result-folded { font-size: 11px; color: var(--muted); }
 
+/* 本手净变化：+绿 / −红，右对齐等宽 */
 .result-amount {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1225,6 +1384,7 @@ input {
 .result-line.win .result-amount { color: var(--green); }
 .result-line.lose .result-amount { color: #ff9a9c; }
 
+/* 底部备注：无人认领的孤池说明 */
 .result-note {
   margin-top: 10px;
   font-size: 12px;
@@ -1232,7 +1392,9 @@ input {
   text-align: center;
 }
 
-/* ---------------------------------------------------------------- toast */
+/* ---------------------------------------------------------------- 12. 吐司提示 */
+/* 界面：底部居中的短提示（"邀请链接已复制""操作太快了"…），2.2 秒后淡出
+   代码：js/core/dom.js 的 toast()；store.reportError() 也会用它报错 */
 
 #toast {
   position: fixed;
@@ -1249,6 +1411,7 @@ input {
   max-width: 92vw;
 }
 
+/* 单条提示：error 红边 / success 绿边；.toast-out 是淡出过程 */
 .toast-item {
   background: rgba(23, 27, 33, 0.96);
   border: 1px solid var(--line);
@@ -1268,13 +1431,13 @@ input {
   to { transform: translateY(0); opacity: 1; }
 }
 
-/* ==========================================================================
-   横屏 / 平板：椭圆牌桌、右侧信息、更宽的操作栏
-   ========================================================================== */
+/* ---------------------------------------------------------------- 13. 响应式 */
+/* 覆盖规则：横屏/平板/超窄屏/大平板。竖屏是所有上面的默认样式，无需重复写。 */
 
-/* 横屏 / 平板：椭圆牌桌由 JS 加上 .seats-oval，这里只做尺寸微调 */
+/* 【强制布局开关】右上角工具条可手动指定竖屏或横屏，方便在电脑上调试手机版
+   （对应 body[data-layout]，由 js/app.js 写入） */
 
-/* 强制横屏布局 */
+/* 强制横屏布局：隐藏竖屏座位列表，改用椭圆牌桌 */
 body[data-layout='landscape'] .seats-portrait { display: none !important; }
 body[data-layout='landscape'] .seats-oval { display: block !important; }
 body[data-layout='landscape'] .table-felt { padding: 14px 18px; }
@@ -1283,6 +1446,7 @@ body[data-layout='landscape'] .table-felt { padding: 14px 18px; }
 body[data-layout='portrait'] .seats-oval { display: none !important; }
 body[data-layout='portrait'] .seats-portrait { display: flex !important; }
 
+/* 【平板 / 大屏手机横屏】把大厅与等待室收窄居中，网格加一列 */
 @media (min-width: 720px) {
   .lobby-body,
   .waiting-body {
@@ -1304,7 +1468,7 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
   }
 }
 
-/* 横屏时把操作栏压扁，尽量留给牌桌 */
+/* 【手机横屏矮屏 ≤560px】把牌桌尽量留大：操作栏压扁、牌缩小、隐藏金额提示行 */
 @media (orientation: landscape) and (max-height: 560px) {
   .my-zone { padding: 6px 12px 2px; }
   .card-lg { width: 34px; height: 48px; font-size: 16px; }
@@ -1317,14 +1481,14 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
   .table-felt { gap: 6px; padding-bottom: 8px; }
 }
 
-/* 超窄屏（小手机竖屏）：座位卡片再压一压 */
+/* 【小屏手机 ≤360px】座位卡与按钮再收紧，避免换行挤压 */
 @media (max-width: 360px) {
   .card-lg { width: 36px; height: 52px; font-size: 17px; }
   .seat { padding: 6px 8px; }
   .ctrl-primary .btn { font-size: 15px; padding: 12px 6px; }
 }
 
-/* 大平板横屏：椭圆桌放大些 */
+/* 【大平板横屏 ≥900px】椭圆牌桌与牌面放大，充分利用空间 */
 @media (min-width: 900px) and (orientation: landscape) {
   .seats-oval .seat { width: 132px; }
   .card-lg { width: 48px; height: 68px; font-size: 22px; }

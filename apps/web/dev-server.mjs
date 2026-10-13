@@ -34,7 +34,9 @@ function argValue(flag, fallback) {
 }
 
 const PORT = Number(argValue('--port', process.env.WEB_PORT ?? 8080));
-const TARGET = new URL(argValue('--target', process.env.GAME_SERVER ?? 'http://127.0.0.1:3001'));
+const TARGET = new URL(argValue('--target', process.env.GAME_SERVER ?? 'http://43.135.53.83:3000'));
+/** --no-proxy：纯静态服务器，页面直连「服务器与高级设置」里填的地址 */
+const NO_PROXY = process.argv.includes('--no-proxy');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -117,7 +119,8 @@ function proxyUpgrade(req, socket, head) {
 const server = createServer(async (req, res) => {
   const urlPath = (req.url ?? '/').split('?')[0];
 
-  if (urlPath.startsWith('/api/')) {
+  if (!NO_PROXY && (urlPath.startsWith('/api/') || urlPath.startsWith('/socket.io'))) {
+    // /api/* 转发时会去掉前缀；/socket.io/* 原样转发（HTTP 轮询与 WebSocket 升级都要）
     proxyHttp(req, res);
     return;
   }
@@ -153,13 +156,20 @@ const server = createServer(async (req, res) => {
 });
 
 server.on('upgrade', (req, socket, head) => {
-  if ((req.url ?? '').startsWith('/socket.io')) proxyUpgrade(req, socket, head);
+  if (!NO_PROXY && (req.url ?? '').startsWith('/socket.io')) proxyUpgrade(req, socket, head);
   else socket.destroy();
 });
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`2nkpoker 前端: http://localhost:${PORT}`);
   console.log(`静态目录: ${ROOT}`);
-  console.log(`API/WS 代理目标: ${TARGET.origin}  (/api/* 与 /socket.io/*)`);
+  if (NO_PROXY) {
+    console.log('代理: 已关闭（--no-proxy）—— 页面直连「服务器与高级设置」里填的地址');
+  } else {
+    console.log(`代理目标: ${TARGET.origin}`);
+    console.log('  /api/*       → 后端（自动去掉 /api 前缀）');
+    console.log('  /socket.io/* → 后端（HTTP 轮询 + WebSocket 升级）');
+    console.log('  想连本仓库的 game-server：加 --target http://127.0.0.1:3001');
+  }
   console.log('手机访问：让手机与电脑同一 Wi-Fi，用电脑局域网 IP 打开上面的地址');
 });

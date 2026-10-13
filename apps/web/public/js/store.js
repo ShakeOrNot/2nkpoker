@@ -10,6 +10,7 @@ import {
   writeStore,
   clearStore,
   resolveServerConfig,
+  resolveProto,
   gameNamespaceUrl,
   roomFromQuery,
   STORAGE_KEYS,
@@ -36,6 +37,7 @@ import {
 import * as api from './net/api.js';
 import { GameSocket, isAuthError } from './net/socket.js';
 import { createMockSocket } from './net/mock-socket.js';
+import { RemoteProtocolSocket, needsRemoteAdapter } from './net/remote-protocol.js';
 import { upsertRecord } from './net/roomStore.js';
 
 /** @typedef {'login'|'lobby'|'waiting'|'table'} Phase */
@@ -73,6 +75,8 @@ export class Store {
       /** 登录页上的网络状态：unknown | ok | fail */
       serverStatus: 'unknown',
       offline: readStore(STORAGE_KEYS.offline) === '1',
+      /** 协议模式：'auto' | 'local'（本仓库 game-server） | 'remote'（另一种协议的后端） */
+      proto: resolveProto(),
       layout: readStore(STORAGE_KEYS.layout) ?? 'auto',
       /** 连接状态 */
       connection: 'idle', // idle | connecting | online | offline
@@ -283,22 +287,24 @@ export class Store {
     let session;
     if (manualToken) {
       session = { token: manualToken.trim(), userId: name, nickname: name, expiresAt: 0 };
+    } else if (this.state.offline) {
+      session = { token: 'offline', userId: `local_${name}`, nickname: name, expiresAt: Date.now() + TOKEN_TTL_MS };
+    } else if (this.usesRemoteAdapter()) {
+      // 适配模式下后端不做鉴权：只用昵称做身份，不需要 token
+      session = { token: '', userId: name, nickname: name, expiresAt: 0 };
+      this.log('目标服务器不需要登录，直接用昵称进入（协议适配模式）');
     } else {
-      if (this.state.offline) {
-        session = { token: 'offline', userId: `local_${name}`, nickname: name, expiresAt: Date.now() + TOKEN_TTL_MS };
-      } else {
-        const res = await api.login(name);
-        if (!res.ok) {
-          this.patch({ busy: false });
-          return { ok: false, code: res.code, message: this.reportError(res.message ?? errorText(res.code, '登录失败'), { code: res.code, log: false }) };
-        }
-        session = {
-          token: res.token ?? '',
-          userId: res.userId ?? name,
-          nickname: res.nickname ?? name,
-          expiresAt: Date.now() + TOKEN_TTL_MS,
-        };
+      const res = await api.login(name);
+      if (!res.ok) {
+        this.patch({ busy: false });
+        return { ok: false, code: res.code, message: this.reportError(res.message ?? errorText(res.code, '登录失败'), { code: res.code, log: false }) };
       }
+      session = {
+        token: res.token ?? '',
+        userId: res.userId ?? name,
+        nickname: res.nickname ?? name,
+        expiresAt: Date.now() + TOKEN_TTL_MS,
+      };
     }
 
     writeStore(STORAGE_KEYS.session, session);
@@ -324,6 +330,19 @@ export class Store {
     });
     this.patchRoom({ tableId: '', snapshot: null, actionRequest: null, lastResult: null, log: [], notice: '' });
     if (message) toast(message, 'info');
+  }
+
+  /**
+   * 当前是否要使用"远端另一种协议"的适配层。
+   * ?proto=remote|local 是硬开关；auto 时按地址自动判断（含已知远端 IP）。
+   * @returns {boolean}
+   */
+  usesRemoteAdapter() {
+    if (this.state.offline) return false;
+    if (this.state.proto === 'remote') return true;
+    if (this.state.proto === 'local') return false;
+    const { wsBase, apiBase } = this.state.serverConfig;
+    return needsRemoteAdapter(wsBase) || needsRemoteAdapter(apiBase);
   }
 
   /* ------------------------------------------------------------------ *
@@ -360,6 +379,27 @@ export class Store {
       this.socket = transport;
       this.patch({ connection: 'online' });
       this.log('离线练习模式：已连接本地对手引擎');
+      return { ok: true };
+    }
+
+    // 远端服务器用的是另一套协议 → 走协议适配层（详见 net/remote-protocol.js）
+    if (this.usesRemoteAdapter()) {
+      transport = new RemoteProtocolSocket({
+        baseUrl: this.state.serverConfig.wsBase,
+        roomId: this.state.room.tableId || 'main',
+        playerName: session.nickname || session.userId || '玩家',
+        maxSeats: 6,
+        onLog: (line) => this.log(line, 'info'),
+      });
+      transport.setHandlers(this.buildHandlers());
+      this.socket = transport;
+      const remoteRes = await transport.connect({ wsBase: this.state.serverConfig.wsBase });
+      if (!remoteRes.ok) {
+        this.patch({ connection: 'offline' });
+        return { ok: false, code: remoteRes.code, message: remoteRes.message ?? errorText(remoteRes.code) };
+      }
+      this.patch({ connection: 'online' });
+      this.log(`已连接远端服务器（协议适配模式）：${this.state.serverConfig.wsBase}`);
       return { ok: true };
     }
 

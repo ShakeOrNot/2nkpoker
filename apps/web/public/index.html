@@ -12,7 +12,153 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="description" content="2nk 德州扑克 · 手机端牌桌" />
   <title>2nk 德州扑克</title>
-  <link rel="stylesheet" href="./css/app.css" />
+  <link rel="stylesheet" href="./css/app.css" /><picture>
+    <source media="(min-width: )" srcset="">
+    <img src="" alt=""><picture>
+      <source media="()" srcset="">
+      <img src="" alt="">
+    </picture>
+  </picture>
+  <style>
+    /* 只在登录阶段铺背景。body[data-phase] 是 app.js 设置的；
+       页面刚打开、app.js 还没跑完时还没有这个属性，所以补一档 :not([data-phase])，
+       否则会先闪一下纯黑底再出图 */
+    body[data-phase='login'],
+    body:not([data-phase]) {
+      background-color: #0d1013;
+      background-image:
+        /* 遮罩只压暗下半部分：上面留空，背景里的「2NK poker」才能原样看清 */
+        linear-gradient(
+          180deg,
+          rgba(6, 11, 8, 0) 0%,
+          rgba(6, 11, 8, 0) 32%,
+          rgba(6, 11, 8, 0.5) 58%,
+          rgba(6, 11, 8, 0.75) 100%
+        ),
+        url('./img/login-bg.jpg');
+      background-repeat: no-repeat;
+      background-size: cover;
+      background-position: center center;
+    }
+
+    /* ---------- 手机横屏（高度不足 560）：卡片顶部留白 36vh ----------
+       横屏走 cover，这行字实测落在视口高度的 20%~32%，36vh 能完整让开 */
+    @media (orientation: landscape) {
+      body[data-phase='login'] .view-login,
+      body:not([data-phase]) .view-login {
+        justify-content: flex-start;
+        padding-top: 36vh;
+      }
+    }
+
+    /* ---------- 电脑 / 平板横屏 ----------
+       上块（用户名 + 进入大厅）：恢复上一步的位置——顶部对齐、水平居中、不缩放
+       下块（或 + 离线练习 + 后端状态 + 高级设置）：单独挪到右上角，整体缩到 80%
+       min-width: 1000px 是为了保证右上角那块不会横向压到背景里居中的那行字 */
+    @media (orientation: landscape) and (min-width: 1000px) and (min-height: 560px) {
+      body[data-phase='login'] .view-login,
+      body:not([data-phase]) .view-login {
+        justify-content: flex-start;
+        padding-top: 32vh;             /* 比原来 26vh 下移约 6vh（900 高的窗口约 54px） */
+      }
+
+      /* 下块挪走以后，上块要恢复成一张完整的卡片：补回下边框、四角圆角和下内边距；
+         再放大 10%（以顶边中点为原点，所以不会往下跑、也不会偏心） */
+      body[data-phase='login'] .view-login .login-card,
+      body:not([data-phase]) .view-login .login-card {
+        padding-bottom: 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        transform: scale(1.1);
+        transform-origin: top center;
+      }
+
+      /* 下块单独成一张卡片，放右上角、缩到 80%、比原来上移 12px */
+      body[data-phase='login'] .login-side,
+      body:not([data-phase]) .login-side {
+        position: absolute;            /* 相对 #views 定位（它有 position: relative），也就是整个视口 */
+        top: 44px;                     /* 原来是 56px；再往上会顶到右上角那个「布局」按钮 */
+        right: 22px;
+        margin: 0;                     /* 取消 margin: 0 auto，否则会被拉回中间 */
+        padding-top: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 18px;
+        transform: scale(0.8);         /* 整体缩小，字和按钮一起缩 */
+        transform-origin: top right;
+      }
+
+      /* 右上那块里不需要「或」这条分隔线（手机端两块连着，仍然要它分隔两个按钮，
+         所以只在这里隐藏；想彻底去掉就改 js/views/login.js） */
+      body[data-phase='login'] .login-side .divider,
+      body:not([data-phase]) .login-side .divider {
+        display: none;
+      }
+    }
+
+    /* 手机竖屏：图片是 16:9 横图，竖屏用 cover 只能看到图片中间约四分之一的宽度，
+       图上的「2NK poker」标志会被裁掉大半。所以竖屏改成"顶部横幅"：
+       整幅图按宽度铺在顶部，顶部 15% 完全不压暗（字最清楚），再往下溶进页面底色 */
+    @media (orientation: portrait) {
+      body[data-phase='login'],
+      body:not([data-phase]) {
+        background-image:
+          linear-gradient(
+            180deg,
+            rgba(6, 11, 8, 0) 0%,
+            rgba(6, 11, 8, 0) 15%,
+            #0d1013 24%
+          ),
+          url('./img/login-bg.jpg');
+        background-repeat: no-repeat;
+        background-size: cover, 100% auto;
+        background-position: center top, center top;
+      }
+
+      /* 卡片整体下移到底部。margin-top: auto 在还有空间时把卡片推到底，
+         空间不够时它自动变成 0，卡片照常从上往下排、可以滚，不会像 justify-content: flex-end 那样把顶部裁掉 */
+      body[data-phase='login'] .view-login,
+      body:not([data-phase]) .view-login {
+        justify-content: flex-start;
+      }
+      body[data-phase='login'] .login-card,
+      body:not([data-phase]) .login-card {
+        margin-top: auto;
+        margin-bottom: 0;
+      }
+    }
+
+    /* 登录卡片现在拆成上下两块（见 js/views/login.js）：
+       上块 = 品牌 + 提示 + 用户名 + 进入大厅；下块 = 或 + 离线练习 + 后端状态 + 高级设置。
+       默认两块贴合在一起、看起来仍是一整张卡片（所以上块只去掉下边框、下块只去掉上边框）；
+       电脑端由下面那条 @media 把下块单独挪到右上角并缩小。
+       嫌不够透就把 0.4 调小（0 = 全透明），嫌背景糊就把 blur 调小或删掉那两行 */
+    .view-login .login-card {
+      max-width: 340px;
+      padding: 16px 14px 0;                            /* 下内边距交给 login-side，两块之间才不会留双份空隙 */
+      background: rgba(12, 16, 21, 0.4);
+      border-color: rgba(255, 255, 255, 0.14);
+      border-bottom: 0;
+      border-radius: 18px 18px 0 0;
+      box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);     /* 阴影只往上投，接缝处才不会露出一条暗带 */
+      backdrop-filter: blur(3px) saturate(120%);
+      -webkit-backdrop-filter: blur(3px) saturate(120%);
+    }
+
+    .view-login .login-side {
+      width: 100%;
+      max-width: 340px;
+      margin: 0 auto;
+      padding: 0 14px 16px;
+      background: rgba(12, 16, 21, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-top: 0;
+      border-radius: 0 0 18px 18px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(3px) saturate(120%);
+      -webkit-backdrop-filter: blur(3px) saturate(120%);
+    }
+  </style>
 </head>
 <body>
   <!-- 固定工具条：布局切换（竖屏 / 横屏 / 自动）与连接状态 -->

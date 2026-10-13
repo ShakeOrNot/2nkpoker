@@ -48,7 +48,20 @@ node apps/web/dev-server.mjs     # 默认 8080，可用 --port / --target 改
 - 电脑：`http://localhost:8080`
 - 手机：连同一个 Wi-Fi，用电脑的局域网 IP，例如 `http://192.168.1.10:8080`（代理让前后端同源，避免 CORS）
 
-### 方式三：任意静态托管 + 直接指向后端
+### 方式三：连别人的服务器（另一套协议）
+
+如果目标后端**不是**本仓库的 `game-server`（例如 `http://43.135.53.83:3000`，一套无鉴权的
+Socket.IO 协议），前端会自动走**协议适配层**，把对方协议翻译成我们的 `table:*` / `game:*`：
+
+```bash
+node apps/web/dev-server.mjs --port 8199 --no-proxy
+# 打开：http://localhost:8199/?api=http://43.135.53.83:3000&table=abc123&proto=remote
+```
+
+协议对照表（实测抓包）、翻译规则与已知限制见
+[`docs/remote-server-integration.md`](../../docs/remote-server-integration.md)。
+
+### 方式四：任意静态托管 + 直接指向后端
 
 页面会自动按 `?api=` 参数、其次是 localStorage 里保存的地址、最后是同源来解析后端：
 
@@ -69,7 +82,8 @@ https://your-host/index.html?api=http://192.168.1.10:3001
    - 一手结束 → "坐下"自动恢复可用
 4. **牌桌**：
    - 底部操作栏：**弃牌 / 过牌 / 跟注**，以及 **下注/加注**（自定义金额 + 滑块 + 快捷比例）
-   - 快捷比例：**半池 / 2/3 池 / 满池 / 最小加注 / 全下**，金额都用底池公式算好
+   - 快捷比例：**1/3 池 / 半池 / 2/3 池 / 满池 / 1.2 池 / 最小下注(加注) / 全下**，金额都用底池公式算好
+     （低于最小下注额、或与自己筹码上限重复的按钮会自动隐藏，避免出现点了会被服务端拒绝的按钮）
    - 自定义金额**永远不会超过自己的筹码量**：超过会被拦下并提示"最多只能下到 X"（`amount` 是"本街下注到的总额"，不是增量）
    - 轮到你时有 30 秒倒计时；超时服务端会自动过牌/弃牌，日志里标 `(timeout)`
    - 右上角"日志"可看实时牌局流水，"邀请"复制邀请链接
@@ -93,9 +107,20 @@ https://your-host/index.html?api=http://192.168.1.10:3001
 ## 测试
 
 ```bash
-node apps/web/test/run-tests.mjs                      # 单元测试：78 个断言
+node apps/web/test/run-tests.mjs                      # 单元测试：97 个断言
 node apps/web/test/.dsh-tests/dom-smoke.mjs           # 18 个模块 import + 4 个阶段渲染
 node apps/web/test/.dsh-tests/e2e-smoke.mjs           # 真实装配 app.js，模拟点击走完整流程
+```
+
+真实浏览器联调（需要本机有 Edge/Chrome）：
+
+```bash
+# 连本机离线引擎（纯本地，最稳）
+node apps/web/test/.dsh-tests/browser-check.mjs http://127.0.0.1:8080/
+
+# 连远端真实服务器：浏览器里的我们 + Node 里的对手，打完整一手
+node apps/web/dev-server.mjs --port 8199 --no-proxy     # 终端 1
+node apps/web/test/.dsh-tests/browser-remote-hand.mjs   # 终端 2
 ```
 
 > 仓库根目录的 `node_modules` 是在别的机器上装的，本机依赖树不完整（跑不了 vitest）。所以测试自带了一个极小的 vitest 替身与浏览器桩放在 `test/.dsh-tests/`，**零依赖**即可运行。

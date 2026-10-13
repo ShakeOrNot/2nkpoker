@@ -21,6 +21,9 @@ export class LoginView extends View {
 
   build() {
     const card = node('login-card');
+    /* 卡片下半块（「或」以下：离线练习 / 后端状态 / 高级设置）单独装进这个容器。
+       手机上两块贴合着看还是一整张卡片；电脑端由 index.html 里的样式把这块挪到右上角。 */
+    const side = node('login-side');
 
     const brand = node('brand');
     brand.appendChild(tag('div', 'brand-mark', '♠'));
@@ -136,7 +139,16 @@ export class LoginView extends View {
     details.appendChild(body);
     card.appendChild(details);
 
+    /* 把「或」以及它后面的东西整体挪进 side。
+       这样不用改动上面几十行构建代码，也不会漏掉以后新增的元素 */
+    let moving = false;
+    for (const el of [...card.children]) {
+      if (el.classList.contains('divider')) moving = true;
+      if (moving) side.appendChild(el);
+    }
+
     this.root.appendChild(card);
+    if (side.children.length) this.root.appendChild(side);
   }
 
   async testServer() {

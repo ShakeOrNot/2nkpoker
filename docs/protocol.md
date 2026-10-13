@@ -132,6 +132,7 @@
 ### 下注快捷（`poker-engine/betSizing.js`）
 
 - `BetFraction`：`THIRD=1/3`、`HALF=0.5`、`TWO_THIRDS=2/3`、`FULL=1`、`ONE_POINT_TWO=1.2`
+- 前端操作栏对应 5 个快捷按钮：**1/3 池 / 半池 / 2/3 池 / 满池 / 1.2 池**（另有"最小下注/加注"与"全下"）
 - `calcBetSize({ pot, fraction, currentBet, myBetThisStreet, chips, minRaise, bigBlind })`
   - 返回 `{ type: 'bet'|'raise', amount, capped, isAllIn, fraction }`
   - `amount` 是"本街下注到多少"，不是增量
