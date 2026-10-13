@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+  />
+  <meta name="theme-color" content="#0d1013" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="2nk 德州扑克 · 手机端牌桌" />
+  <title>2nk 德州扑克</title>
+  <link rel="stylesheet" href="./css/app.css" />
+</head>
+<body>
+  <!-- 固定工具条：布局切换（竖屏 / 横屏 / 自动）与连接状态 -->
+  <div id="toolbar"></div>
+
+  <!-- 未捕获错误的提示条：任何失败都要在界面上看得见，避免"点了没反应" -->
+  <div id="error-banner" role="alert"></div>
+
+  <!-- 视图容器：登录 / 大厅 / 等待室 / 牌桌，同一时刻只有一个可见 -->
+  <main id="views">
+    <!-- 启动占位：app.js 接管后会被替换掉；若它没能加载，下面会显示原因 -->
+    <section class="view view-active" id="boot-placeholder">
+      <div class="login-card">
+        <div class="brand">
+          <div class="brand-mark">♠</div>
+          <div class="brand-text">
+            <h1>2nk 德州扑克</h1>
+            <p id="boot-status">正在加载…</p>
+          </div>
+        </div>
+        <div id="boot-error" class="boot-error"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- toast 提示挂载点 -->
+  <div id="toast"></div>
+
+  <noscript>
+    <p style="padding: 20px; color: #eee">这个页面需要启用 JavaScript。</p>
+  </noscript>
+
+  <!--
+    启动兜底：这段内联脚本不依赖任何模块，必须放在 app.js 之前。
+    只要 app.js 没能在 4 秒内把 window.__poker 挂上，就把可能的原因直接显示出来
+    （file:// 打开、模块加载失败、脚本被拦截等），避免"点了没反应又没报错"。
+  -->
+  <script>
+    (function () {
+      var timer = setTimeout(function () { show(''); }, 4000);
+
+      window.addEventListener('error', function (ev) {
+        var t = ev.target;
+        if (t && t.tagName === 'SCRIPT') {
+          clearTimeout(timer);
+          show('脚本加载失败：' + (t.src || '(inline)'));
+        } else if (ev.error && ev.message) {
+          // 真正的 JS 运行时错误（资源加载失败不会带 ev.error）
+          show('脚本报错：' + ev.message);
+        }
+      }, true);
+
+      function show(extra) {
+        if (window.__poker) return;                 // 已正常启动
+        var box = document.getElementById('boot-error');
+        if (!box || box.dataset.shown) return;
+        box.dataset.shown = '1';
+
+        var lines = [];
+        if (location.protocol === 'file:') {
+          lines.push('你是用 file:// 直接打开的，浏览器会拒绝加载 ES 模块。');
+          lines.push('请在项目根目录执行：node apps/web/dev-server.mjs');
+          lines.push('然后访问 http://localhost:8080');
+        } else {
+          lines.push('页面没能启动：app.js 没有加载成功。');
+          lines.push('请打开浏览器控制台（F12）查看红色错误，并确认 ' + location.origin + '/js/app.js 能打开。');
+        }
+        if (extra) lines.push(extra);
+
+        var status = document.getElementById('boot-status');
+        if (status) status.textContent = '启动失败';
+        box.innerHTML = lines.map(function (t) { return '<div>· ' + t + '</div>'; }).join('');
+        box.classList.add('visible');
+      }
+    })();
+  </script>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
