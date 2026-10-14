@@ -21,6 +21,32 @@ import { createServer } from 'node:net';
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
 
+/**
+ * 启动前自检：找不到项目文件时给出人话提示，而不是让 node 抛一堆 MODULE_NOT_FOUND。
+ * （最常见的原因是"在错误的目录里执行了 node apps/web/start.mjs"）
+ */
+function verifyLayout() {
+  const problems = [];
+  if (!existsSync(join(here, 'dev-server.mjs'))) problems.push(`missing script dir: ${here}`);
+  if (!existsSync(join(repoRoot, 'package.json'))) problems.push(`missing project root: ${repoRoot}`);
+  if (!existsSync(join(here, 'public', 'index.html'))) problems.push(`missing page: ${join(here, 'public', 'index.html')}`);
+  if (!problems.length) return;
+
+  console.error('\n[error] project files not found or wrong layout\n');
+  for (const p of problems) console.error('  - ' + p);
+  console.error('\nRun it from the project root (the folder that contains apps/ and packages/):');
+  console.error('    cd /d F:\\2nkpoker\\2nkpoker');
+  console.error('    node apps\\web\\start.mjs --port 8080');
+  console.error('\nAn absolute path also works from any folder:');
+  console.error('    node F:\\2nkpoker\\2nkpoker\\apps\\web\\start.mjs --port 8080');
+  console.error('\nEasiest: double-click  启动前端.cmd  in the project root (it cd\'s by itself).');
+  console.error('\ncwd: ' + process.cwd());
+  console.error('script dir: ' + here);
+  process.exit(1);
+}
+
+verifyLayout();
+
 const args = process.argv.slice(2);
 const flag = (name, fallback = null) => {
   const i = args.indexOf(name);
@@ -28,7 +54,13 @@ const flag = (name, fallback = null) => {
 };
 const WEB_PORT = Number(flag('--port', process.env.WEB_PORT ?? 8080));
 const GAME_PORT = Number(flag('--game-port', process.env.PORT ?? 3001));
+/**
+ * 前端要代理到哪台后端。
+ * 默认远端那台（已验证可用）；本仓库的 game-server 要先 pnpm install 才能起，
+ * 所以 --with-server 时自动改回本机 3001。
+ */
 const withServer = args.includes('--with-server');
+const PROXY_TARGET = flag('--target', process.env.GAME_SERVER ?? (withServer ? `http://127.0.0.1:${GAME_PORT}` : 'http://43.135.53.83:3000'));
 
 /** @type {import('node:child_process').ChildProcess[]} */
 const children = [];
@@ -67,30 +99,33 @@ function portBusy(port) {
 
 const webBusy = await portBusy(WEB_PORT);
 if (webBusy) {
-  console.log(`端口 ${WEB_PORT} 已被占用——如果就是之前起的服务，直接访问即可；否则换 --port。`);
+  console.log(`[warn] port ${WEB_PORT} is already in use - if a server is already running, just open it; otherwise use --port.`);
 }
 
-console.log('启动 2nkpoker 前端');
-console.log(`  静态目录: ${join(here, 'public')}`);
-console.log(`  页面地址: http://localhost:${WEB_PORT}`);
-console.log(`  后端代理: http://127.0.0.1:${GAME_PORT}  (/api/* 与 /socket.io/*)`);
+// 注意：这里刻意只用 ASCII 输出。
+// Windows 控制台默认是 GBK，直接打印中文会变成乱码；
+// 中文提示统一放在 启动前端.cmd（它用 chcp 65001 切到 UTF-8）里显示。
+console.log('2nkpoker web starting');
+console.log(`  static dir : ${join(here, 'public')}`);
+console.log(`  page       : http://localhost:${WEB_PORT}`);
+console.log(`  api proxy  : ${PROXY_TARGET}  (/api/* and /socket.io/*)`);
 
 const node = process.execPath;
-start('前端', [node, join(here, 'dev-server.mjs'), '--port', String(WEB_PORT), '--target', `http://127.0.0.1:${GAME_PORT}`], repoRoot);
+start('web', [node, join(here, 'dev-server.mjs'), '--port', String(WEB_PORT), '--target', PROXY_TARGET], repoRoot);
 
 if (withServer) {
   const serverEntry = join(repoRoot, 'apps', 'game-server', 'src', 'server.js');
   if (!existsSync(serverEntry)) {
-    console.log('[后端] 找不到 apps/game-server/src/server.js，跳过');
+    console.log('[warn] apps/game-server/src/server.js not found, skip backend');
   } else {
-    console.log('启动 game-server（需要依赖已安装）');
-    start('后端', [node, '--env-file=.env', serverEntry], join(repoRoot, 'apps', 'game-server'), { PORT: String(GAME_PORT) });
+    console.log('starting game-server (requires pnpm install)');
+    start('server', [node, '--env-file=.env', serverEntry], join(repoRoot, 'apps', 'game-server'), { PORT: String(GAME_PORT) });
   }
 }
 
-console.log('\n打开上面的页面地址即可。手机访问：让手机与电脑同一 Wi-Fi，用电脑的局域网 IP 换掉 localhost。');
-console.log('后端没起也没关系：登录页展开「服务器与高级设置」→ 打开「离线练习模式」，用内置对手引擎照样能玩。');
-console.log('按 Ctrl+C 结束。\n');
+console.log('\nOpen the page address above. Phone: same Wi-Fi, replace localhost with this PC LAN IP.');
+console.log('No backend? On the login page open "server settings" and turn on offline practice mode.');
+console.log('Press Ctrl+C to stop.\n');
 
 const shutdown = () => {
   for (const child of children) {

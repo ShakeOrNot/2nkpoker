@@ -406,13 +406,31 @@ export class RemoteProtocolSocket {
   }
 
   /**
+   * 加入房间失败。
+   * 远端只用 joinFailed 一个事件回各种原因（房间满 / 昵称被占用 / 房间已开局），
+   * 所以这里保留原文案，只按关键字区分错误码，避免把"昵称重复"显示成"牌局已满"。
    * @param {string} message
    */
   handleJoinFailed(message) {
     const text = String(message ?? '加入房间失败');
     this.onLog(`joinFailed：${text}`);
-    if (this.pendingJoin) this.pendingJoin({ ok: false, code: 'TABLE_FULL', message: text });
-    this.notify('onServerError', { code: 'TABLE_FULL', message: text });
+
+    let code = 'JOIN_FAILED';
+    let hint = text;
+    if (/名字|昵称|占用|重名|已被使用/.test(text)) {
+      code = 'NAME_TAKEN';
+      hint = `${text}（换一个昵称：两端不要用同一个名字）`;
+    } else if (/满|坐满|人满|full/i.test(text)) {
+      code = 'TABLE_FULL';
+      hint = `${text}（这个房间座位用完了，换个房号）`;
+    } else if (/开始|进行中|已开局/.test(text)) {
+      code = 'ALREADY_STARTED';
+      hint = `${text}（这局已经在打了，等这手结束或换个房号）`;
+    }
+
+    const result = { ok: false, code, message: hint, rawMessage: text };
+    if (this.pendingJoin) this.pendingJoin(result);
+    this.notify('onServerError', { code, message: hint, rawMessage: text });
   }
 
   /**

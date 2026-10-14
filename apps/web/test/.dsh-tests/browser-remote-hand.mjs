@@ -96,6 +96,15 @@ await send('Runtime.enable');
 await send('Page.navigate', { url: `${PAGE}?api=${encodeURIComponent(BASE)}&table=${ROOM}&proto=remote` });
 await sleep(2500);
 
+const bootInfo = await evaluate(`JSON.stringify({
+  href: location.href,
+  hasPoker: Boolean(window.__poker),
+  serverConfig: window.__poker?.store?.state?.serverConfig,
+  proto: window.__poker?.store?.state?.proto,
+  usesRemote: window.__poker?.store?.usesRemoteAdapter?.(),
+})`);
+console.log('  启动诊断:', bootInfo.value ?? bootInfo.error);
+
 const login = await evaluate(`(async () => {
   const input = document.querySelector('input[type=text]');
   input.value = '我';

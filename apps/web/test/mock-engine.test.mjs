@@ -223,8 +223,10 @@ describe('离线引擎：一手牌打到底', () => {
     const result = ctx.seen.results.at(-1);
     expect(result.result).toBeTruthy();
     expect(Array.isArray(result.result.pots)).toBe(true);
-    // 结果自带的公共牌最可靠（不依赖快照到达时刻）
-    expect(result.board.length).toBeGreaterThanOrEqual(3);
+    // 公共牌张数取决于打到哪条街：翻牌前全员弃牌时就是 0 张，所以只校验类型与上限
+    expect(Array.isArray(result.board)).toBe(true);
+    expect(result.board.length).toBeLessThanOrEqual(5);
+    expect(result.board.every((c) => /^[2-9TJQKA][shdc]$/.test(c))).toBe(true);
 
     // 等一份"这一手已结算"的快照，用于校验筹码守恒
     await waitFor(() => Boolean(ctx.seen.snapshots.at(-1)?.hand?.settled), 5000);
