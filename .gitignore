@@ -1,7 +1,29 @@
+# deps
 node_modules
+
+# build
 dist
+.next
+out
+
+# env
 .env
 .env.*
 !.env.example
-coverage
+
+# logs
 *.log
+npm-debug.log*
+pnpm-debug.log*
+
+# test
+coverage
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea
