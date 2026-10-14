@@ -36,12 +36,12 @@ export function maybeStartHand(t) {
   t.handState = state;
   t.version += 1;
 
-  // 把手牌同步回座位 chips（起手筹码已扣盲）
+   // 把手牌同步回座位 chips（起手筹码已扣盲）
+  // 注意：不清 ready —— 玩家只要准备过一次，就一直连续参与牌局
   for (const hs of state.seats) {
     const seat = t.seats.get(hs.seat);
     if (seat) {
       seat.chips = hs.chips;
-      seat.ready = false; // 开局后清 ready
     }
   }
 
@@ -98,7 +98,8 @@ export function cleanupAfterHand(t) {
     if (s) s.chips = hs.chips;
   }
 
-  // 输光筹码的人自动离座
+  // 输光筹码的人：自动离座（MVP 简化处理）
+  // 若想保留座位让他补码，改成 s.sittingOut = true; s.ready = false;
   for (const [seat, s] of [...t.seats.entries()]) {
     if (s.chips <= 0) {
       t.seats.delete(seat);

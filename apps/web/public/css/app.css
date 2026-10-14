@@ -247,6 +247,8 @@ input {
 .input {
   width: 100%;
   background: #edeff2;/*修改处*/
+  color:#17181c;
+  caret-color: #17181c;
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px 14px;

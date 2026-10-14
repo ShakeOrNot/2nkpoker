@@ -32,6 +32,8 @@ export function registerGameAction(nsp, socket) {
       if (t.handState.settled) {
         clearActionTimer(tableId);
         broadcastResult(nsp, t, handId);
+        // 延迟 2.5 秒（给结算浮层留时间）后自动开下一手
+        scheduleNextHand(nsp, t);
       } else {
         broadcastActionRequest(nsp, t);
       }
@@ -42,4 +44,24 @@ export function registerGameAction(nsp, socket) {
 
 function replyAck(ack, payload) {
   if (typeof ack === 'function') ack(payload);
+}
+/**
+ * 结算后延迟自动开下一手
+ * 只在玩家已 ready 且桌上 ≥ 2 人时才会真正开
+ * @param {import('socket.io').Namespace} nsp
+ * @param {any} t
+ */
+function scheduleNextHand(nsp, t) {
+  setTimeout(() => {
+    t.actor.run(async () => {
+      const { maybeStartHand } = await import('../../state/handOrchestrator.js');
+      const { broadcastHandStart, broadcastActionRequest } = await import('../../state/actionTimer.js');
+      const { broadcastTable } = await import('./table.sit.js');
+
+      if (!maybeStartHand(t)) return;
+      broadcastTable(nsp, t);
+      broadcastHandStart(nsp, t);
+      broadcastActionRequest(nsp, t);
+    });
+  }, 2500);
 }
