@@ -44,6 +44,7 @@ export function broadcastActionRequest(nsp, t) {
           seat: turnSeat,
           legalActions: computeLegalActions(t, turnSeat),
           deadline: Date.now() + ACTION_TIMEOUT_MS,
+          version: t.handState.version,
         });
       }
     }
