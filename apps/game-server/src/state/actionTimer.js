@@ -50,11 +50,21 @@ export function broadcastActionRequest(nsp, t) {
   }
 
   // 启动超时
-  const timer = setTimeout(() => {
+   const timer = setTimeout(() => {
     timers.delete(t.tableId);
     t.actor.run(() => {
-      // 校验 hand 未变、轮次未变
-      if (!t.handState || t.handState.handId !== handId) return;
+      console.log('[TIMER] 超时回调触发, tableId=', t.tableId, 'handId=', handId, 'handState=', t.handState ? t.handState.handId : 'null');
+      // 没有进行中的手牌：可能是上一手结束、下一手没开起来
+      if (!t.handState) {
+        if (maybeStartHand(t)) {
+          broadcastTable(nsp, t);
+          broadcastHandStart(nsp, t);
+          broadcastActionRequest(nsp, t);
+        }
+        return;
+      }
+      // hand 已经换了（比如开了新的一手）：旧计时器作废
+      if (t.handState.handId !== handId) return;
       if (t.handState.currentTurnSeat !== turnSeat) return;
 
       const hs = t.handState.seats.find((x) => x.seat === turnSeat);

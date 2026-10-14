@@ -35,22 +35,66 @@ export function handleDisconnect(nsp, socket) {
   const old = pending.get(k);
   if (old) clearTimeout(old);
 
-  const timer = setTimeout(() => {
+    const timer = setTimeout(() => {
     pending.delete(k);
     const t2 = getTable(tableId);
     if (!t2) return;
-    t2.actor.run(() => {
+    t2.actor.run(async () => {
       const s = t2.seats.get(seat);
       if (!s || s.connected) return;
-      // 仍在局中 → 先把他的座位标记清掉（下一手不再发牌给他）
-      t2.seats.delete(seat);
-      t2.userToSeat.delete(userId);
-      t2.version += 1;
-      clearActionTimer(t2.tableId);
-      broadcastTable(nsp, t2);
-      removeTableIfEmpty(tableId);
+
+      const inHand = t2.handState && !t2.handState.settled;
+
+      if (inHand) {
+        // 局中：保留座位到结算。
+        // 把 ready 设成 false，下一手不会再自动参与
+        s.ready = false;
+        t2.version += 1;
+
+        // 如果正好轮到他，主动走一次正常 fold，推进状态机（不要先标记 folded）
+        const hs = t2.handState.seats.find((x) => x.seat === seat);
+        if (
+          t2.handState.currentTurnSeat === seat &&
+          hs &&
+          !hs.folded &&
+          !hs.allIn
+        ) {
+          const { playAction } = await import('./handOrchestrator.js');
+          const { broadcastActionRequest, broadcastResult } = await import('./actionTimer.js');
+          clearActionTimer(t2.tableId);
+
+          const result = playAction(t2, seat, { type: 'fold' }, t2.handState.version);
+          if (result.ok) {
+            nsp.to(`table:${t2.tableId}`).emit('game:action_applied', {
+              seat,
+              action: { type: 'fold' },
+              handId: t2.handState.handId,
+              timeout: true,
+            });
+            broadcastTable(nsp, t2);
+            if (t2.handState.settled) {
+              broadcastResult(nsp, t2, t2.handState.handId);
+            } else {
+              broadcastActionRequest(nsp, t2);
+            }
+            return;
+          }
+        }
+
+        // 不是他的回合（或 fold 失败）：只广播快照，
+        // 等行动计时器到点自然 fold 他
+        broadcastTable(nsp, t2);
+      } else {
+        // 不在局中：直接删座
+        t2.seats.delete(seat);
+        t2.userToSeat.delete(userId);
+        t2.version += 1;
+        clearActionTimer(t2.tableId);
+        broadcastTable(nsp, t2);
+        removeTableIfEmpty(tableId);
+      }
     });
-  }, RECONNECT_GRACE_MS);
+  }, RECONNECT_GRACE_MS); 
 
   pending.set(k, timer);
 }
