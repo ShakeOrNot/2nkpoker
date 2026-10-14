@@ -26,6 +26,8 @@ import { TableActor } from './tableActor.js';
 
 /** @type {Map<string, Table>} */
 const tables = new Map();
+/** 被 POST /tables 显式创建过的桌子，不会被自动清理 */
+const explicitlyCreated = new Set();
 
 /**
  * @param {string} tableId
@@ -34,7 +36,7 @@ const tables = new Map();
 export function getOrCreateTable(tableId) {
   let t = tables.get(tableId);
   if (!t) {
-    t = {
+        t = {
       tableId,
       version: 0,
       smallBlind: 10,
@@ -45,6 +47,7 @@ export function getOrCreateTable(tableId) {
       handState: null,
       actor: new TableActor(tableId),
       maxSeats: 6,
+      createdAt: Date.now(),
     };
     tables.set(tableId, t);
   }
@@ -60,21 +63,66 @@ export function getTable(tableId) {
 }
 
 /**
- * 如果桌子空了，从表里清掉
+ * 显式创建一张桌子（POST /tables 用），保存用户指定的配置
+ * @param {string} tableId
+ * @param {{ maxSeats?: number, smallBlind?: number, bigBlind?: number }} config
+ * @returns {any}
+ */
+export function createTable(tableId, config = {}) {
+  const t = getOrCreateTable(tableId);
+  if (config.maxSeats != null) {
+    const n = Number(config.maxSeats);
+    if (Number.isInteger(n) && n >= 2 && n <= 6) t.maxSeats = n;
+  }
+  if (config.smallBlind != null) {
+    const n = Number(config.smallBlind);
+    if (Number.isFinite(n) && n > 0) t.smallBlind = n;
+  }
+  if (config.bigBlind != null) {
+    const n = Number(config.bigBlind);
+    if (Number.isFinite(n) && n > 0) t.bigBlind = n;
+  }
+  t.createdAt = Date.now();
+  explicitlyCreated.add(tableId);
+  return t;
+}
+
+/**
+ * 返回所有活跃桌子的摘要列表（GET /tables 用）
+ * @returns {Array<any>}
+ */
+export function listTables() {
+  /** @type {Array<any>} */
+  const out = [];
+  for (const t of tables.values()) {
+    // 空桌子不列出（除非显式创建过，给房主留一手）
+    if (t.seats.size === 0 && !explicitlyCreated.has(t.tableId)) continue;
+    out.push({
+      tableId: t.tableId,
+      players: t.seats.size,
+      maxSeats: t.maxSeats,
+      hasHand: Boolean(t.handState && !t.handState.settled),
+      smallBlind: t.smallBlind,
+      bigBlind: t.bigBlind,
+      createdAt: t.createdAt ?? Date.now(),
+    });
+  }
+  // 新桌在前
+  out.sort((a, b) => b.createdAt - a.createdAt);
+  return out;
+}
+
+/**
+ * 如果桌子空了，从表里清掉（显式创建过的除外）
  * @param {string} tableId
  */
 export function removeTableIfEmpty(tableId) {
   const t = tables.get(tableId);
-  if (t && t.seats.size === 0 && !t.handState) {
-    tables.delete(tableId);
-  }
+  if (!t) return;
+  if (t.seats.size > 0 || t.handState) return;
+  if (explicitlyCreated.has(tableId)) return;
+  tables.delete(tableId);
 }
-
-/**
- * @param {string} tableId
- * @param {string} userId
- * @returns {number|null}
- */
 export function seatOfUser(tableId, userId) {
   const t = tables.get(tableId);
   if (!t) return null;

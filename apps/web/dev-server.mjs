@@ -134,7 +134,7 @@ function proxyUpgrade(req, socket, head) {
 const server = createServer(async (req, res) => {
   const urlPath = (req.url ?? '/').split('?')[0];
 
-  const PROXY_PATHS = ['/api/', '/socket.io', '/health', '/ready', '/dev/'];
+    const PROXY_PATHS = ['/api/', '/socket.io', '/health', '/ready', '/dev/', '/tables'];
   if (!NO_PROXY && PROXY_PATHS.some((p) => urlPath.startsWith(p))) {
     // /api/* 转发时会去掉前缀；/socket.io/* 原样转发（HTTP 轮询与 WebSocket 升级都要）
     proxyHttp(req, res);
