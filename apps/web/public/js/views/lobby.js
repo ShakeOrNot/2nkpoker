@@ -27,6 +27,9 @@ export class LobbyView extends View {
     this.rooms = [];
     this.listState = 'idle'; // idle | loading | ok | unavailable
     this.blindIndex = 0;
+    /* 两张可折叠卡片是否展开：默认都折叠，点各自页签切换 */
+    this.manualOpen = false;
+    this.createOpen = false;
     this.build();
   }
 
@@ -52,8 +55,8 @@ export class LobbyView extends View {
 
     /* 模式切换 */
     const tabs = node('tabs');
-    this.tabList = button({ label: '加入牌局', className: 'tab tab-active', onClick: () => this.setMode('list') });
-    this.tabCreate = button({ label: '创建牌局', className: 'tab', onClick: () => this.setMode('create') });
+    this.tabList = button({ label: '加入牌局', className: 'tab tab-active', onClick: () => this.setMode('list', { toggleManual: true }) });
+    this.tabCreate = button({ label: '创建牌局', className: 'tab', onClick: () => this.setMode('create', { toggleCreate: true }) });
     tabs.appendChild(this.tabList);
     tabs.appendChild(this.tabCreate);
     this.root.appendChild(tabs);
@@ -73,6 +76,22 @@ export class LobbyView extends View {
   buildList() {
     this.panelList = node('panel panel-list');
 
+    /* 「用房号加入」卡片：默认折叠（hidden），点「加入牌局」页签才展开。
+       放在面板最前面，所以展开时正好落在页签正下方 */
+    this.manualCard = node('card card-flat hidden');
+    this.manualCard.appendChild(tag('h3', 'card-title', '用房号加入'));
+    const manualRow = node('row');
+    this.roomInput = tag('input', 'input');
+    this.roomInput.type = 'text';
+    this.roomInput.placeholder = '输入房号或粘贴邀请链接';
+    this.roomInput.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') void this.joinByInput();
+    });
+    manualRow.appendChild(this.roomInput);
+    manualRow.appendChild(button({ label: '加入', className: 'btn-primary', onClick: () => void this.joinByInput() }));
+    this.manualCard.appendChild(manualRow);
+    this.panelList.appendChild(this.manualCard);
+
     const bar = node('list-bar');
     this.refreshBtn = button({
       label: '刷新',
@@ -89,20 +108,6 @@ export class LobbyView extends View {
 
     this.roomList = node('room-list');
     this.panelList.appendChild(this.roomList);
-
-    const manual = node('card card-flat');
-    manual.appendChild(tag('h3', 'card-title', '用房号加入'));
-    const row = node('row');
-    this.roomInput = tag('input', 'input');
-    this.roomInput.type = 'text';
-    this.roomInput.placeholder = '输入房号或粘贴邀请链接';
-    this.roomInput.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') void this.joinByInput();
-    });
-    row.appendChild(this.roomInput);
-    row.appendChild(button({ label: '加入', className: 'btn-primary', onClick: () => void this.joinByInput() }));
-    manual.appendChild(row);
-    this.panelList.appendChild(manual);
   }
 
   async joinByInput() {
@@ -152,14 +157,8 @@ export class LobbyView extends View {
     if (!this.rooms.length) {
       const empty = node('empty-state');
       empty.appendChild(tag('div', 'empty-icon', '♣'));
-      empty.appendChild(tag('p', '', this.listState === 'loading' ? '正在获取牌局…' : '还没有牌局，先创建一个吧'));
-      empty.appendChild(
-        button({
-          label: '创建牌局',
-          className: 'btn-primary',
-          onClick: () => this.setMode('create'),
-        }),
-      );
+      empty.appendChild(tag('p', '', this.listState === 'loading' ? '正在获取牌局…' : '还没有牌局，点击创建牌局立即创建一个'));
+      /* 这里原来有个「创建牌局」按钮，按需求删掉了（顶部页签仍可切到创建） */
       this.roomList.appendChild(empty);
       return;
     }
@@ -238,7 +237,9 @@ export class LobbyView extends View {
 
   buildCreate() {
     this.panelCreate = node('panel panel-create');
-    const card = node('card');
+    /* 「创建牌局」卡片：和「用房号加入」一样默认折叠，点「创建牌局」页签才展开 */
+    this.createCard = node('card hidden');
+    const card = this.createCard;
     card.appendChild(tag('h3', 'card-title', '创建牌局'));
 
     const cfg = defaultRoomConfig(0);
@@ -354,9 +355,15 @@ export class LobbyView extends View {
 
   /**
    * @param {'list'|'create'|'join'} mode
+   * @param {{ toggleManual?: boolean, toggleCreate?: boolean }} [opts]
+   *        点页签时传对应的 toggle：用来展开/收起那张卡片（两张都默认折叠）
    */
-  setMode(mode) {
+  setMode(mode, { toggleManual = false, toggleCreate = false } = {}) {
     this.mode = mode;
+    if (toggleManual) this.manualOpen = !this.manualOpen;
+    if (toggleCreate) this.createOpen = !this.createOpen;
+    this.manualCard.classList.toggle('hidden', !this.manualOpen);
+    this.createCard.classList.toggle('hidden', !this.createOpen);
     this.attach(this.panelList);
     this.attach(this.panelCreate);
     this.attach(this.panelJoin);

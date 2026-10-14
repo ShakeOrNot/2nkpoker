@@ -59,7 +59,7 @@
       body[data-phase='login'] .view-login,
       body:not([data-phase]) .view-login {
         justify-content: flex-start;
-        padding-top: 32vh;             /* 比原来 26vh 下移约 6vh（900 高的窗口约 54px） */
+        padding-top: 36vh;             /* 32vh 再下移 4vh（900 高的窗口约 36px），正好让开背景那行字的下缘 */
       }
 
       /* 下块挪走以后，上块要恢复成一张完整的卡片：补回下边框、四角圆角和下内边距；
@@ -96,9 +96,9 @@
       }
     }
 
-    /* 手机竖屏：图片是 16:9 横图，竖屏用 cover 只能看到图片中间约四分之一的宽度，
-       图上的「2NK poker」标志会被裁掉大半。所以竖屏改成"顶部横幅"：
-       整幅图按宽度铺在顶部，顶部 15% 完全不压暗（字最清楚），再往下溶进页面底色 */
+    /* 手机竖屏：换成一张竖版(9:16)的图，直接 cover 铺满整屏。
+       图上「2NK poker」在图片高度的 17%~21%，所以渐变只压暗下半部分：
+       上半部分不压暗（字保持原亮度），卡片所在的下面一段压暗给卡片当底 */
     @media (orientation: portrait) {
       body[data-phase='login'],
       body:not([data-phase]) {
@@ -106,13 +106,14 @@
           linear-gradient(
             180deg,
             rgba(6, 11, 8, 0) 0%,
-            rgba(6, 11, 8, 0) 15%,
-            #0d1013 24%
+            rgba(6, 11, 8, 0.1) 26%,
+            rgba(6, 11, 8, 0.55) 42%,
+            rgba(6, 11, 8, 0.85) 100%
           ),
-          url('./img/login-bg.jpg');
+          url('./img/login-bg-phone.jpg');
         background-repeat: no-repeat;
-        background-size: cover, 100% auto;
-        background-position: center top, center top;
+        background-size: cover;
+        background-position: center center;
       }
 
       /* 卡片整体下移到底部。margin-top: auto 在还有空间时把卡片推到底，
@@ -126,13 +127,21 @@
         margin-top: auto;
         margin-bottom: 0;
       }
+      /* 再整体上移一点：给最后一块（下半块）留个底部外边距，915 高的手机约 6vh≈55px。
+         想更靠上就把 6vh 调大；想回到贴底就删掉这条 */
+      body[data-phase='login'] .login-side,
+      body:not([data-phase]) .login-side {
+        margin-bottom: 6vh;
+      }
     }
 
     /* 登录卡片现在拆成上下两块（见 js/views/login.js）：
        上块 = 品牌 + 提示 + 用户名 + 进入大厅；下块 = 或 + 离线练习 + 后端状态 + 高级设置。
        默认两块贴合在一起、看起来仍是一整张卡片（所以上块只去掉下边框、下块只去掉上边框）；
        电脑端由下面那条 @media 把下块单独挪到右上角并缩小。
-       嫌不够透就把 0.4 调小（0 = 全透明），嫌背景糊就把 blur 调小或删掉那两行 */
+       嫌不够透就把 0.4 调小（0 = 全透明）。
+       这里不用 backdrop-filter 毛玻璃：它要给每块卡片各开一块离屏图层、每帧重算模糊，
+       而卡片本来就只有 0.4 不透明度，有没有模糊观感差别很小，省掉更划算 */
     .view-login .login-card {
       max-width: 340px;
       padding: 16px 14px 0;                            /* 下内边距交给 login-side，两块之间才不会留双份空隙 */
@@ -141,8 +150,6 @@
       border-bottom: 0;
       border-radius: 18px 18px 0 0;
       box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);     /* 阴影只往上投，接缝处才不会露出一条暗带 */
-      backdrop-filter: blur(3px) saturate(120%);
-      -webkit-backdrop-filter: blur(3px) saturate(120%);
     }
 
     .view-login .login-side {
@@ -155,8 +162,84 @@
       border-top: 0;
       border-radius: 0 0 18px 18px;
       box-shadow: var(--shadow);
-      backdrop-filter: blur(3px) saturate(120%);
-      -webkit-backdrop-filter: blur(3px) saturate(120%);
+    }
+
+    /* ---------- 牌局大厅的背景照片 ----------
+       body[data-phase='lobby'] 同样由 app.js 设置，只在大厅这一屏生效，
+       不影响等待室/牌桌。图片：public/img/lobby-bg.jpg（1080×1441，104 KB）
+       background-size: cover = 保持长宽比铺满，多出来的部分裁掉；
+       想让整张照片都露出来、两侧留底色，把 cover 改成 contain 即可。
+       上面那层渐变是遮罩：房间列表/卡片是深色主题，照片不压暗会太亮。嫌暗就调小这两个数 */
+    body[data-phase='lobby'] {
+      background-color: #0d1013;
+      background-image:
+        linear-gradient(rgba(10, 13, 18, 0.62), rgba(10, 13, 18, 0.78)),
+        url('./img/lobby-bg.jpg');
+      background-repeat: no-repeat;
+      background-size: cover;
+      background-position: center center;
+    }
+
+    /* 大厅里的面板卡（列表面板的「用房号加入」+「创建牌局」面板那张）：
+       宽度跟上面的页签 / 面板对齐。
+       原因：app.css 里 .card 这个名字定义了两遍——
+         L278 是面板容器（深底 + 14px 内边距），
+         L911 是牌桌上的扑克牌（display: inline-grid + 白底 + place-items: center），
+       后者在后面所以赢了，大厅这两张面板卡被当扑克牌渲染：宽度缩成内容宽、还带上白底。
+       这里把大厅里的 .card 改回块级 + 撑满；牌桌那边的扑克牌不受影响
+       （大厅里没有扑克牌，所以这条不会误伤） */
+    .view-lobby .card {
+      display: block;
+      width: 100%;
+    }
+
+    /* ---------- 等待室的背景轮播 ----------
+       6 张照片叠 6 层，每 6 秒交叉淡入淡出一张（切换逻辑在 js/views/waiting.js）。
+       尺寸/位置用 cover（保持长宽比铺满，多出的裁掉）；
+       上面压一层遮罩，保证等待室里的卡片和文字看得清——嫌暗就把 0.5/0.7 调小 */
+    .view-waiting .waiting-bg {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 0;
+      overflow: hidden;
+      background: #0d1013;
+    }
+
+    .view-waiting .waiting-bg::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      background: linear-gradient(rgba(10, 13, 18, 0.5), rgba(10, 13, 18, 0.7));
+    }
+
+    .view-waiting .waiting-bg-slide {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      background-size: cover;
+      background-position: center center;
+      background-repeat: no-repeat;
+      opacity: 0;
+      transition: opacity 1.4s ease;
+    }
+
+    .view-waiting .waiting-bg-slide.is-active {
+      opacity: 1;
+    }
+
+    /* 内容要盖在背景照片上面 */
+    .view-waiting > .app-header,
+    .view-waiting > .waiting-body {
+      position: relative;
+      z-index: 1;
     }
   </style>
 </head>

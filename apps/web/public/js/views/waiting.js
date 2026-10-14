@@ -19,7 +19,65 @@ export class WaitingView extends View {
     this.build();
   }
 
+  /* ---------- 背景轮播：6 张照片自动循环 ---------- */
+
+  /**
+   * 显示第 i 张，其余淡出
+   * @param {number} i
+   */
+  showSlide(i) {
+    this.bgIndex = i;
+    this.bgSlides.forEach((el, idx) => el.classList.toggle('is-active', idx === i));
+  }
+
+  /** 每 6 秒换一张（进等待室开始，离开就停，避免白占 CPU） */
+  startSlideshow() {
+    if (this.slideTimer || !this.bgSlides.length) return;
+    /* 图片 URL 到这里才写：视图是应用启动时就建好的，
+       如果 build() 里就写上，登录页/大厅会提前下载这 6 张照片 */
+    this.bgSlides.forEach((el, i) => {
+      if (!el.style.backgroundImage) el.style.backgroundImage = `url('./img/waiting-${i + 1}.jpg')`;
+    });
+    this.showSlide(0);
+    this.slideTimer = setInterval(() => {
+      this.showSlide((this.bgIndex + 1) % this.bgSlides.length);
+    }, 4000);
+  }
+
+  stopSlideshow() {
+    if (this.slideTimer) {
+      clearInterval(this.slideTimer);
+      this.slideTimer = null;
+    }
+  }
+
+  /**
+   * @param {HTMLElement} container
+   */
+  mount(container) {
+    super.mount(container);
+    this.startSlideshow();
+  }
+
+  unmount() {
+    super.unmount();
+    this.stopSlideshow();
+  }
+
   build() {
+    /* 背景轮播层：6 张照片各占一层叠在一起，靠 opacity 交叉淡入淡出。
+       放在最前面，配合 index.html 里的 z-index 让它待在内容下面 */
+    this.bgSlides = [];
+    this.bgIndex = 0;
+    this.slideTimer = null;
+    const bg = node('waiting-bg');
+    for (let i = 1; i <= 6; i++) {
+      const slide = node('waiting-bg-slide');
+      bg.appendChild(slide);
+      this.bgSlides.push(slide);
+    }
+    this.root.appendChild(bg);
+
     const header = node('app-header');
     this.backBtn = button({
       label: '返回大厅',
