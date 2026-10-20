@@ -83,7 +83,6 @@ export class WaitingView extends View {
       label: '返回大厅',
       className: 'btn-ghost btn-sm',
       onClick: () => {
-        this.store.closeSocket();
         this.store.patch({ phase: 'lobby' });
       },
     });
@@ -250,22 +249,31 @@ export class WaitingView extends View {
 
     /* 状态提示 */
     this.notice.replaceChildren();
-    if (live) {
+        if (live) {
       this.notice.className = 'notice notice-live visible';
-      const message = me
-        ? '牌局已开始，本手结束后会自动进入牌桌。'
-        : '牌局已经开始，正在等待这一手结束；你可以先坐下，稍后自动入局。';
-      this.notice.appendChild(tag('div', '', message));
-      if (me && mySeat != null) {
+      if (me) {
+        // 如果自己有座位，说明本来就在局里（或者是点返回大厅还没离座的）
+        this.notice.appendChild(tag('div', '', '牌局进行中，点击回到牌桌继续操作。'));
         this.notice.appendChild(
           button({
-            label: '直接旁观这张牌桌',
+            label: '回到牌桌',
+            className: 'btn-primary btn-sm',
+            onClick: () => this.store.patch({ phase: 'table' }),
+          }),
+        );
+      } else {
+        // 没座位，才是真旁观
+        this.notice.appendChild(tag('div', '', '牌局进行中，你可以点“排队等待下一手”，本手结束后自动入座。'));
+        this.notice.appendChild(
+          button({
+            label: '进入观战',
             className: 'btn-ghost btn-sm',
             onClick: () => this.store.patch({ phase: 'table' }),
           }),
         );
       }
-    } else if (me && me.ready) {
+    }
+     else if (me && me.ready) {
       this.notice.className = 'notice notice-ok visible';
       this.notice.appendChild(tag('div', '', readyCount === occupied ? '所有人已准备，正在发牌…' : '已准备，等待其他玩家准备'));
     } else if (occupied < 2) {
@@ -310,18 +318,18 @@ export class WaitingView extends View {
     }
 
     /* 按钮状态 */
-    const canSit = !me && !live && occupied < maxSeats;
+    const canSit = !me && occupied < maxSeats;
     const canReady = Boolean(me) && !live;
     const canStand = Boolean(me) && !live;
 
-    setDisabled(this.sitBtn, !canSit || Boolean(state.busy));
-    setDisabled(this.readyBtn, !canReady || Boolean(state.busy));
-    setDisabled(this.standBtn, !canStand || Boolean(state.busy));
+    setDisabled(this.sitBtn, !canSit);
+    setDisabled(this.readyBtn, !canReady);
+    setDisabled(this.standBtn, !canStand);
     setText(this.readyBtn, me?.ready ? '取消准备' : '准备开始');
     this.buyRow.classList.toggle('hidden', Boolean(me));
 
     if (live && occupied < maxSeats) {
-      setText(this.sitBtn, '牌局进行中，稍后可入座');
+      setText(this.sitBtn, '排队等待下一手');
     } else if (occupied >= maxSeats) {
       setText(this.sitBtn, '座位已满');
     } else {

@@ -36,7 +36,7 @@ const explicitlyCreated = new Set();
 export function getOrCreateTable(tableId) {
   let t = tables.get(tableId);
   if (!t) {
-        t = {
+           t = {
       tableId,
       version: 0,
       smallBlind: 10,
@@ -44,6 +44,7 @@ export function getOrCreateTable(tableId) {
       buttonSeat: 0,
       seats: new Map(),
       userToSeat: new Map(),
+      sitQueue: [], // ← 新增：等待入座的队列 { userId, nickname, buyIn, preferredSeat }
       handState: null,
       actor: new TableActor(tableId),
       maxSeats: 6,
@@ -140,6 +141,17 @@ export function findFreeSeat(t, preferred) {
   }
   for (let i = 0; i < t.maxSeats; i++) {
     if (!t.seats.has(i)) return i;
+  }
+  return null;
+}
+/**
+ * 查询该用户当前坐在哪张桌子上（跨桌检测）
+ * @param {string} userId
+ * @returns {any|null}
+ */
+export function findUserTable(userId) {
+  for (const t of tables.values()) {
+    if (t.userToSeat.has(userId)) return t;
   }
   return null;
 }

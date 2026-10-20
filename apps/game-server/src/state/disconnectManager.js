@@ -18,7 +18,21 @@ export function handleDisconnect(nsp, socket) {
   const userId = socket.data.userId;
   const tableId = socket.data.tableId;
   const seat = socket.data.seat;
-  if (!userId || !tableId || seat == null) return;
+  if (!userId || !tableId) return;
+
+  // 如果是排队的玩家断线，直接从队列移除
+  if (seat == null) {
+    const tQueue = getTable(tableId);
+    if (tQueue?.sitQueue) {
+      const before = tQueue.sitQueue.length;
+      tQueue.sitQueue = tQueue.sitQueue.filter((q) => q.userId !== userId);
+      if (tQueue.sitQueue.length !== before) {
+        tQueue.version += 1;
+        broadcastTable(nsp, tQueue);
+      }
+    }
+    return;
+  }
 
   const t = getTable(tableId);
   if (!t) return;

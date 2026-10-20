@@ -4,6 +4,7 @@ import {
   getTable,
   findFreeSeat,
   removeTableIfEmpty,
+  findUserTable,
 } from '../../state/tableManager.js';
 import { toTableSnapshot } from '../../state/tableSnapshot.js';
 
@@ -28,6 +29,16 @@ export function registerTableSit(nsp, socket) {
     const nickname = socket.data.nickname;
 
     t.actor.run(() => {
+      // 跨桌检测
+      const existingTable = findUserTable(userId);
+      if (existingTable && existingTable.tableId !== tableId) {
+        return replyAck(ack, { 
+          ok: false, 
+          code: 'ALREADY_IN_OTHER_TABLE', 
+          message: '你已经在另一张桌子上了，请先退出那张桌子' 
+        });
+      }
+
       if (t.userToSeat.has(userId)) {
         return replyAck(ack, { ok: false, code: 'ALREADY_SEATED', message: 'already seated' });
       }
@@ -35,8 +46,26 @@ export function registerTableSit(nsp, socket) {
       if (free == null) {
         return replyAck(ack, { ok: false, code: 'TABLE_FULL', message: 'no free seat' });
       }
-      if (t.handState && !t.handState.settled) {
-        return replyAck(ack, { ok: false, code: 'HAND_IN_PROGRESS', message: 'hand in progress' });
+            if (t.handState && !t.handState.settled) {
+        // 如果已经在队列里，不重复添加
+        const existing = (t.sitQueue ?? []).find((q) => q.userId === userId);
+        if (!existing) {
+          t.sitQueue = t.sitQueue ?? [];
+          t.sitQueue.push({
+            userId,
+            nickname: nickname ?? `user_${userId.slice(0, 6)}`,
+            buyIn,
+            preferredSeat: preferredSeat ?? -1,
+          });
+          t.version += 1;
+          broadcastTable(nsp, t);
+        }
+        return replyAck(ack, {
+          ok: false,
+          code: 'HAND_IN_PROGRESS',
+          queued: true,
+          message: '牌局进行中，已加入排队，本手结束后自动入座',
+        });
       }
 
       t.seats.set(free, {
@@ -67,8 +96,20 @@ export function registerTableSit(nsp, socket) {
     if (!t) return replyAck(ack, { ok: false, code: 'TABLE_NOT_FOUND' });
 
     const userId = socket.data.userId;
-    t.actor.run(() => {
+        t.actor.run(() => {
       const seat = t.userToSeat.get(userId);
+
+      // 不在座位上，但在排队里 → 取消排队
+      if (seat == null && t.sitQueue) {
+        const idx = t.sitQueue.findIndex((q) => q.userId === userId);
+        if (idx !== -1) {
+          t.sitQueue.splice(idx, 1);
+          t.version += 1;
+          broadcastTable(nsp, t);
+          return replyAck(ack, { ok: true, message: '已取消排队' });
+        }
+      }
+
       if (seat == null) return replyAck(ack, { ok: false, code: 'NOT_SEATED' });
       if (t.handState && !t.handState.settled) {
         return replyAck(ack, { ok: false, code: 'HAND_IN_PROGRESS' });

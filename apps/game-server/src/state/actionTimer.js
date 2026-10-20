@@ -51,6 +51,8 @@ export function broadcastActionRequest(nsp, t) {
   }
 
   // 启动超时
+   const player = t.seats.get(turnSeat);
+   const delay = (player && !player.connected) ? 100 : ACTION_TIMEOUT_MS;
    const timer = setTimeout(() => {
     timers.delete(t.tableId);
     t.actor.run(() => {
@@ -90,7 +92,7 @@ export function broadcastActionRequest(nsp, t) {
         broadcastActionRequest(nsp, t);
       }
     });
-  }, ACTION_TIMEOUT_MS);
+  }, delay);
   timers.set(t.tableId, timer);
 }
 

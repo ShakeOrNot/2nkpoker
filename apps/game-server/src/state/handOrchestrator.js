@@ -1,5 +1,6 @@
 import { startHand, applyAction, toSnapshot as handSnapshot } from '@2nkpoker/poker-engine';
 import { toTableSnapshot } from './tableSnapshot.js';
+import { findFreeSeat } from './tableManager.js';
 
 /**
  * 检查是否该开局。满足条件就 startHand 并返回 true
@@ -8,13 +9,17 @@ import { toTableSnapshot } from './tableSnapshot.js';
  */
 export function maybeStartHand(t) {
   if (t.handState && !t.handState.settled) return false;
-  if (t.seats.size < 2) return false;
+  
+  // 新增：过滤掉断线玩家
+  const activeSeats = [...t.seats.values()].filter((s) => s.connected);
+  
+  if (activeSeats.length < 2) return false;
 
-  const allReady = [...t.seats.values()].every((s) => s.ready);
+  const allReady = activeSeats.every((s) => s.ready);
   if (!allReady) return false;
 
-  // 收集参局者
-  const players = [...t.seats.values()]
+  // 收集参局者（改成用 activeSeats）
+  const players = activeSeats
     .sort((a, b) => a.seat - b.seat)
     .map((s) => ({
       seat: s.seat,
@@ -92,14 +97,13 @@ export function playAction(t, seat, action, expectedVersion) {
 export function cleanupAfterHand(t) {
   if (!t.handState || !t.handState.settled) return;
 
-  // chips 已经在 applyAction / settle 里更新过了，确保一致
+  // 1. 同步筹码
   for (const hs of t.handState.seats) {
     const s = t.seats.get(hs.seat);
     if (s) s.chips = hs.chips;
   }
 
-  // 输光筹码的人：自动离座（MVP 简化处理）
-  // 若想保留座位让他补码，改成 s.sittingOut = true; s.ready = false;
+  // 2. 输光筹码的人自动离座
   for (const [seat, s] of [...t.seats.entries()]) {
     if (s.chips <= 0) {
       t.seats.delete(seat);
@@ -107,7 +111,29 @@ export function cleanupAfterHand(t) {
     }
   }
 
+  // 3. 清空手牌状态
   t.handState = null;
+
+  // 4. 处理排队队列：把还在等待的人拉上座位
+  if (Array.isArray(t.sitQueue) && t.sitQueue.length > 0) {
+    for (const q of t.sitQueue) {
+      if (t.userToSeat.has(q.userId)) continue; // 已经在座位上了
+      const free = findFreeSeat(t, q.preferredSeat);
+      if (free != null) {
+        t.seats.set(free, {
+          seat: free,
+          userId: q.userId,
+          nickname: q.nickname,
+          chips: q.buyIn,
+          ready: false,
+          connected: true, // 注意：如果重连逻辑还没处理，先设为 true 兜底
+        });
+        t.userToSeat.set(q.userId, free);
+      }
+    }
+    t.sitQueue = []; // 队列清空
+  }
+
   t.version += 1;
 }
 

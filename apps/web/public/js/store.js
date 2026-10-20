@@ -481,14 +481,13 @@ export class Store {
 
     if (me?.holeCards?.length) this.state.lastHoleCards = [...me.holeCards];
 
-    // 阶段推进：已经坐下 → 进牌桌；否则留在等待室
-    /** @type {Phase} */
+    // 阶段推进：只在 waiting 或 table 之间自动切换，lobby 保持不变
+    /** @type {Phase} */  
     let phase = this.state.phase;
-    if (this.state.phase === 'lobby' || this.state.phase === 'waiting' || this.state.phase === 'table') {
+    if (this.state.phase === 'waiting' || this.state.phase === 'table') {
       const seated = snapshot.seats.some((s) => s.userId === this.state.session?.userId);
       if (seated && handRunning(hand)) phase = 'table';
       else if (seated || this.state.phase === 'waiting') phase = this.state.phase === 'table' && !seated ? 'waiting' : phase;
-      if (this.state.phase === 'lobby') phase = 'waiting';
     }
 
     // 已经结算过的手牌 → 记住结算数据，等 user 看完再走
@@ -514,6 +513,15 @@ export class Store {
    * @param {any} payload
    */
   applyActionRequest(payload) {
+    // 如果玩家退到了大厅，说明他在挂机，直接帮他弃牌，不卡别人
+    if (this.state.phase === 'lobby') {
+      const hand = this.state.room.snapshot?.hand;
+      if (hand) {
+        this.log('你在大厅挂机，已自动为你弃牌', 'warn');
+        this.act({ type: 'fold' });
+      }
+      return;
+    }
     this.pendingRequest = payload;
     this.patchRoom({ actionRequest: payload });
     if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
@@ -685,7 +693,11 @@ export class Store {
       this.patch({ busy: false });
     }
 
-    if (!res?.ok) {
+      if (!res?.ok) {
+      if (res?.queued) {
+        toast('已加入排队，本手结束后自动入座', 'info');
+        return { ok: true, queued: true }; // 告诉 UI 排队成功了
+      }
       const message = errorText(res?.code, '入座失败');
       this.reportError(`入座失败：${message}`, { log: false });
       return { ok: false, code: res?.code, message };

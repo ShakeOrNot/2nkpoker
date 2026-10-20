@@ -41,16 +41,14 @@ export class TableView extends View {
   build() {
     /* 顶栏 */
     const header = node('app-header table-header');
-    this.leaveBtn = button({
-      label: '返回',
+      this.leaveBtn = button({
+      label: '返回大厅',
       className: 'btn-ghost btn-sm',
       onClick: () => {
         const running = handRunning(this.store.state.room.snapshot?.hand);
+        this.store.patch({ phase: 'lobby' });
         if (running) {
-          this.store.patch({ phase: 'waiting' });
-          toast('牌局进行中，先回到等待室（仍在牌桌上旁观）', 'info');
-        } else {
-          this.store.patch({ phase: 'waiting' });
+          toast('牌局进行中，已在大厅挂机，轮到你会自动过牌/弃牌', 'info');
         }
       },
     });

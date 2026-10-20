@@ -72,6 +72,7 @@ export const ERROR_TEXT = {
   BAD_AMOUNT: '下注金额超出可用筹码或不符合规则',
   NEED_USERNAME: '请输入用户名',
   NO_HAND: '本手牌还没开始',
+  ALREADY_IN_OTHER_TABLE: '你已经在另一张桌子上了，请先退出那张桌子',
 };
 
 /**
