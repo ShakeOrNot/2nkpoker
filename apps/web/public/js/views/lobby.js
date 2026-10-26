@@ -146,7 +146,7 @@ export class LobbyView extends View {
     this.noticeWrap.replaceChildren();
     if (this.listState === 'unavailable') {
       this.noticeWrap.appendChild(
-        tag('div', '', '后端还没有 /tables 接口（见 docs/backend-todo-rooms.md）：下面显示的是本机创建/加入过的牌局，也可以直接输入房号。'),
+        tag('div', '', '牌局列表暂时取不到（后端 /tables 不可用？）：下面显示的是本机创建/加入过的牌局，也可以直接输入房号。'),
       );
       this.noticeWrap.classList.add('visible');
     } else {

@@ -512,24 +512,40 @@ export class Store {
   /**
    * @param {any} payload
    */
-  applyActionRequest(payload) {
-    // 如果玩家退到了大厅，说明他在挂机，直接帮他弃牌，不卡别人
-    if (this.state.phase === 'lobby') {
-      const hand = this.state.room.snapshot?.hand;
-      if (hand) {
-        this.log('你在大厅挂机，已自动为你弃牌', 'warn');
-        this.act({ type: 'fold' });
-      }
+    applyActionRequest(payload) {
+    // 如果当前不在牌桌界面（在大厅或等待室），直接立刻代打
+    if (this.state.phase !== 'table') {
+      this.log('挂机中（不在牌桌），自动为你过牌/弃牌', 'warn');
+      this.autoAction(payload);
       return;
     }
+
     this.pendingRequest = payload;
     this.patchRoom({ actionRequest: payload });
     if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
+    
     const ms = Math.max(0, (payload?.deadline ?? 0) - Date.now());
+    
+    // 倒计时结束：玩家在牌桌发呆，前端主动代打，不等待后端超时
     this.deadlineTimer = setTimeout(() => {
       this.patchRoom({ actionRequest: null });
-    }, ms + 200);
+      this.log('操作超时，自动为你过牌/弃牌', 'warn');
+      this.autoAction(payload);
+    }, ms + 200); // 延迟 200ms 保证后端也认可这个时间点
+
     if (payload?.seat != null) this.log('轮到你了');
+  }
+
+  // 新增一个自动代打方法
+  async autoAction(req) {
+    const hand = this.state.room.snapshot?.hand;
+    if (!hand || hand.handId !== req.handId) return;
+    const me = hand.seats.find(s => s.seat === req.seat);
+    if (!me) return;
+    
+    const toCall = Math.max(0, (hand.currentBet ?? 0) - (me.betThisStreet ?? 0));
+    const action = toCall === 0 ? { type: 'check' } : { type: 'fold' };
+    await this.act(action);
   }
 
   /**
@@ -591,7 +607,7 @@ export class Store {
     // 后端支持的话就登记一下；不支持也不影响开局
     if (!this.state.offline) {
       const res = await api.createRoom({ tableId, ...cfg });
-      if (!res.ok) this.log('后端还没有创建牌局接口，先按本机牌局开局（见 docs/backend-todo-rooms.md）', 'warn');
+      if (!res.ok) this.log('牌局登记失败（后端 POST /tables 不可用？），先按本机牌局开局', 'warn');
     }
 
     const joined = await this.joinRoom(tableId, { asHost: true });
@@ -831,6 +847,15 @@ export class Store {
       isMyTurn: myTurn,
     };
   }
+  async leaveRoom() {
+  if (!this.state.room.tableId) return;
+  // 通知后端退订
+  if (this.socket && this.state.connection === 'online') {
+    await this.socket.request('table:leave', { tableId: this.state.room.tableId });
+  }
+  // 清空前端本地状态
+  this.patchRoom({ tableId: '', snapshot: null, actionRequest: null, lastResult: null, log: [], notice: '' });
+  }
 }
 
 /**
@@ -850,6 +875,7 @@ export function actionText(action) {
       all_in: '全下',
     }[String(type)] ?? String(type)
   );
+  
 }
 
 export { gameNamespaceUrl, clock };

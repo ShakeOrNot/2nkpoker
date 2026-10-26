@@ -119,10 +119,15 @@ export function registerTableSit(nsp, socket) {
       t.userToSeat.delete(userId);
       t.version += 1;
 
+      // 关键修复：先把最新快照单独发给自己，然后再把自己移出房间
+      const forSeat = null; 
+      socket.emit('table:snapshot', toTableSnapshot(t, forSeat));
+
       socket.leave(`table:${tableId}`);
       socket.data.tableId = undefined;
       socket.data.seat = undefined;
 
+      // 再广播给房间里剩下的其他人
       broadcastTable(nsp, t);
       removeTableIfEmpty(tableId);
       replyAck(ack, { ok: true });

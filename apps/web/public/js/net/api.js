@@ -1,10 +1,12 @@
 /**
  * HTTP 接口层。
  *
- * 已实现于后端的：POST /dev/token        （仅开发环境挂载）
- * 仍需后端补的：  GET  /tables           （牌局列表，见 docs/backend-todo-rooms.md）
- *                POST /tables           （创建牌局，可选）
- *                GET  /tables/:id       （单个牌局详情，可选）
+ * 后端已实现（见 docs/protocol.md）：
+ *   GET  /health、GET /ready
+ *   GET  /tables           牌局列表
+ *   GET  /tables/:tableId  单个牌局详情
+ *   POST /tables           创建/取回牌局
+ *   POST /dev/token        仅开发环境的 JWT 签发
  *
  * 列表接口拿不到时不报错阻塞，交给上层降级成"手输房号 / 本机记录"。
  */

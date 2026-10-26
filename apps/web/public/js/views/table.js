@@ -41,14 +41,20 @@ export class TableView extends View {
   build() {
     /* 顶栏 */
     const header = node('app-header table-header');
-      this.leaveBtn = button({
+    this.leaveBtn = button({
       label: '返回大厅',
       className: 'btn-ghost btn-sm',
       onClick: () => {
         const running = handRunning(this.store.state.room.snapshot?.hand);
-        this.store.patch({ phase: 'lobby' });
         if (running) {
-          toast('牌局进行中，已在大厅挂机，轮到你会自动过牌/弃牌', 'info');
+          // 局中挂机
+          this.store.patch({ phase: 'lobby' });
+          toast('牌局进行中，已在大厅挂机，轮到你会自动操作', 'info');
+        } else {
+          // 局外正常退出，自动站起
+          this.store.stand().then(() => {
+            this.store.patch({ phase: 'lobby' });
+          });
         }
       },
     });

@@ -1,7 +1,7 @@
 /**
  * 纯逻辑层：所有"算一算"的事情都放这里，不碰 DOM、不碰网络，方便直接单测。
  *
- * 关键语义（来自后端 docs/frontend-contract-*.md）：
+ * 关键语义（与 docs/protocol.md 一致）：
  *   - bet / raise 的 amount 是"本街下注到的目标总额"，不是增量
  *   - 所有金额都是整数
  *   - raise 的目标必须 ≥ currentBet + minRaise

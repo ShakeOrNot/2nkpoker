@@ -214,7 +214,12 @@ export class WaitingView extends View {
     setDisabled(this.standBtn, true);
     const res = await this.store.stand();
     setDisabled(this.standBtn, false);
-    if (!res.ok) toast(res.message || '离座失败', 'error');
+    if (!res.ok) {
+      toast(res.message || '离座失败', 'error');
+    } else {
+      // 离座成功后，直接退出这个房间，免得卡在等待室
+      await this.store.leaveRoom();
+    }
   }
 
   /**

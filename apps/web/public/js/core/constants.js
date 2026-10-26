@@ -43,7 +43,7 @@ export const S2C = {
 
 /**
  * 服务端错误码 → 中文提示。
- * 与 docs/error-codes.md 对齐，另外覆盖后端 handler 里实际出现的码。
+ * 与 docs/protocol.md 的错误码表对齐（前后端唯一出处以文档为准）。
  */
 export const ERROR_TEXT = {
   AUTH_FAILED: '登录已失效，请重新登录',
@@ -68,7 +68,7 @@ export const ERROR_TEXT = {
   NETWORK: '连不上服务器，请检查网络或服务是否已启动',
   NOT_CONNECTED: '还没有连上服务器',
   NO_LEGAL_ACTION: '现在没有可执行的操作',
-  ROOM_LIST_UNAVAILABLE: '牌局列表服务不可用（后端待实现 /tables）',
+  ROOM_LIST_UNAVAILABLE: '牌局列表暂时取不到，先显示本机记录',
   BAD_AMOUNT: '下注金额超出可用筹码或不符合规则',
   NEED_USERNAME: '请输入用户名',
   NO_HAND: '本手牌还没开始',
