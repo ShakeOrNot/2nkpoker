@@ -61,14 +61,106 @@ describe('startHand - 开局', () => {
     })).toThrow();
   });
 
-  it('座位不连续报错', () => {
-    expect(() => startHand({
+  it('座位号不连续也能开局（有人离座后留下的空位）', () => {
+    const { state } = startHand({
       handId: 'x', buttonSeat: 0, smallBlind: 10, bigBlind: 20,
       players: [
         { seat: 0, chips: 1000 },
         { seat: 2, chips: 1000 },
+        { seat: 4, chips: 1000 },
+      ],
+    });
+    expect(state.seats.map((s) => s.seat)).toEqual([0, 2, 4]);
+    expect(state.currentTurnSeat).toBe(0); // 3 人：BTN 先
+  });
+
+  it('座位号重复报错', () => {
+    expect(() => startHand({
+      handId: 'x', buttonSeat: 0, smallBlind: 10, bigBlind: 20,
+      players: [
+        { seat: 0, chips: 1000 },
+        { seat: 0, chips: 1000 },
       ],
     })).toThrow();
+  });
+});
+
+describe('稀疏座位（0/2/4 这种有空位的桌子）', () => {
+  const sparsePlayers = () => ([
+    { seat: 0, userId: 'a', nickname: 'A', chips: 1000 },
+    { seat: 2, userId: 'b', nickname: 'B', chips: 1000 },
+    { seat: 4, userId: 'c', nickname: 'C', chips: 1000 },
+  ]);
+
+  it('盲注落在真实座位上，空座位不参与', () => {
+    const { state } = startHand({
+      handId: 'hs', buttonSeat: 0, smallBlind: 10, bigBlind: 20,
+      players: sparsePlayers(),
+    });
+    expect(state.buttonSeat).toBe(0);
+    // SB = 按钮位之后第一个有人坐的座位 2，BB = 4
+    expect(state.seats.find((s) => s.seat === 2).betThisStreet).toBe(10);
+    expect(state.seats.find((s) => s.seat === 4).betThisStreet).toBe(20);
+    expect(state.currentBet).toBe(20);
+    for (const s of state.seats) expect(s.holeCards).toHaveLength(2);
+  });
+
+  it('按钮位不在任何人身上时自动顺延', () => {
+    const { state } = startHand({
+      handId: 'hs2', buttonSeat: 3, smallBlind: 10, bigBlind: 20,
+      players: [
+        { seat: 2, chips: 1000 },
+        { seat: 4, chips: 1000 },
+      ],
+    });
+    // 3 之后顺时针第一个有人坐的是 4；单挑时按钮位(4)就是 SB
+    expect(state.buttonSeat).toBe(4);
+    expect(state.seats.find((s) => s.seat === 4).betThisStreet).toBe(10);
+    expect(state.seats.find((s) => s.seat === 2).betThisStreet).toBe(20);
+  });
+
+  it('翻后行动顺序跨过空座位，筹码守恒', () => {
+    let { state } = startHand({
+      handId: 'hs3', buttonSeat: 0, smallBlind: 10, bigBlind: 20,
+      players: sparsePlayers(),
+    });
+    // 翻前：BTN(0) -> SB(2) -> BB(4)
+    state = play(state, [
+      [0, { type: 'call' }],
+      [2, { type: 'call' }],
+      [4, { type: 'check' }],
+    ]);
+    expect(state.street).toBe(Street.FLOP);
+    expect(state.currentTurnSeat).toBe(2); // 翻后 SB 先
+
+    // 翻牌 / 转牌 / 河牌：2 -> 4 -> 0 依次 check
+    for (let street = 0; street < 3; street++) {
+      state = play(state, [
+        [2, { type: 'check' }],
+        [4, { type: 'check' }],
+        [0, { type: 'check' }],
+      ]);
+    }
+    expect(state.settled).toBe(true);
+    expect(state.result.pots.reduce((s, p) => s + p.amount, 0)).toBe(60);
+    expect(state.seats.reduce((s, x) => s + x.chips, 0)).toBe(3000);
+  });
+
+  it('单挑空座位 2/4：翻前 BTN 先、翻后 BB 先', () => {
+    let { state } = startHand({
+      handId: 'hs4', buttonSeat: 2, smallBlind: 10, bigBlind: 20,
+      players: [
+        { seat: 2, chips: 1000 },
+        { seat: 4, chips: 1000 },
+      ],
+    });
+    expect(state.currentTurnSeat).toBe(2); // BTN/SB 翻前先
+    state = play(state, [
+      [2, { type: 'call' }],
+      [4, { type: 'check' }],
+    ]);
+    expect(state.street).toBe(Street.FLOP);
+    expect(state.currentTurnSeat).toBe(4); // 翻后 BB 先
   });
 });
 

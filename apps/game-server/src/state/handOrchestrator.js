@@ -1,5 +1,4 @@
-import { startHand, applyAction, toSnapshot as handSnapshot } from '@2nkpoker/poker-engine';
-import { toTableSnapshot } from './tableSnapshot.js';
+import { startHand, applyAction, nextOccupiedSeat } from '@2nkpoker/poker-engine';
 import { findFreeSeat } from './tableManager.js';
 
 /**
@@ -9,17 +8,13 @@ import { findFreeSeat } from './tableManager.js';
  */
 export function maybeStartHand(t) {
   if (t.handState && !t.handState.settled) return false;
-  
-  // 新增：过滤掉断线玩家
-  const activeSeats = [...t.seats.values()].filter((s) => s.connected);
-  
-  if (activeSeats.length < 2) return false;
+  if (t.seats.size < 2) return false;
 
-  const allReady = activeSeats.every((s) => s.ready);
+  // 恢复：让所有座位上的人都参与（断线的人靠 0.1s 超时秒弃）
+  const allReady = [...t.seats.values()].every((s) => s.ready);
   if (!allReady) return false;
 
-  // 收集参局者（改成用 activeSeats）
-  const players = activeSeats
+  const players = [...t.seats.values()]
     .sort((a, b) => a.seat - b.seat)
     .map((s) => ({
       seat: s.seat,
@@ -30,9 +25,16 @@ export function maybeStartHand(t) {
 
   const handId = `h_${t.tableId}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
+  // 座位号可能不连续（有人输光离座后留下的空位），按钮位也必须落在真实座位上。
+  // 这里先规整一次，保证 t.buttonSeat 每手都往前推进，不会卡在空座位上。
+  const occupied = players.map((p) => p.seat);
+  const btnSeat = occupied.includes(t.buttonSeat)
+    ? t.buttonSeat
+    : nextOccupiedSeat(occupied, t.buttonSeat);
+
   const { state } = startHand({
     handId,
-    buttonSeat: t.buttonSeat,
+    buttonSeat: btnSeat,
     smallBlind: t.smallBlind,
     bigBlind: t.bigBlind,
     players,
@@ -41,18 +43,13 @@ export function maybeStartHand(t) {
   t.handState = state;
   t.version += 1;
 
-   // 把手牌同步回座位 chips（起手筹码已扣盲）
-  // 注意：不清 ready —— 玩家只要准备过一次，就一直连续参与牌局
   for (const hs of state.seats) {
     const seat = t.seats.get(hs.seat);
-    if (seat) {
-      seat.chips = hs.chips;
-    }
+    if (seat) seat.chips = hs.chips;
   }
 
-  // 移动按钮位到下一个有人坐的座位
-  t.buttonSeat = nextButton(t, t.buttonSeat);
-
+  // 下一手按钮位：从本手按钮位顺时针找下一个有人坐的座位
+  t.buttonSeat = nextOccupiedSeat(occupied, btnSeat) ?? btnSeat;
   return true;
 }
 
@@ -135,19 +132,4 @@ export function cleanupAfterHand(t) {
   }
 
   t.version += 1;
-}
-
-/**
- * 从 buttonSeat 的下一个座位找起，找下一个有人坐的座位
- * @param {any} t
- * @param {number} current
- * @returns {number}
- */
-function nextButton(t, current) {
-  if (t.seats.size === 0) return 0;
-  for (let i = 1; i <= t.maxSeats; i++) {
-    const idx = (current + i) % t.maxSeats;
-    if (t.seats.has(idx)) return idx;
-  }
-  return current;
 }

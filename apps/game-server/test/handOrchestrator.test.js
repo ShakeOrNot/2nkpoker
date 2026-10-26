@@ -45,6 +45,37 @@ describe('maybeStartHand', () => {
     ]);
     expect(maybeStartHand(t)).toBe(false);
   });
+
+  it('座位号有空位（有人输光离座后）也能开局', () => {
+    const t = getOrCreateTable('h4');
+    seedTable(t, [
+      { seat: 0, userId: 'a', nickname: 'A', chips: 1000, ready: true },
+      { seat: 2, userId: 'b', nickname: 'B', chips: 1000, ready: true },
+      { seat: 4, userId: 'c', nickname: 'C', chips: 1000, ready: true },
+    ]);
+    expect(maybeStartHand(t)).toBe(true);
+    expect(t.handState.seats.map((s) => s.seat)).toEqual([0, 2, 4]);
+    expect(t.handState.buttonSeat).toBe(0);
+    // SB=2, BB=4，并且每人都发了牌
+    expect(t.handState.seats.find((s) => s.seat === 2).betThisStreet).toBe(10);
+    expect(t.handState.seats.find((s) => s.seat === 4).betThisStreet).toBe(20);
+    for (const s of t.handState.seats) expect(s.holeCards).toHaveLength(2);
+    // 下一手按钮位前进到下一个有人坐的座位
+    expect(t.buttonSeat).toBe(2);
+  });
+
+  it('按钮位停在空座位上时自动顺延，不会卡死', () => {
+    const t = getOrCreateTable('h5');
+    t.buttonSeat = 3; // 3 号座位没人
+    seedTable(t, [
+      { seat: 0, userId: 'a', nickname: 'A', chips: 1000, ready: true },
+      { seat: 2, userId: 'b', nickname: 'B', chips: 1000, ready: true },
+    ]);
+    expect(maybeStartHand(t)).toBe(true);
+    // 3 之后绕回 0
+    expect(t.handState.buttonSeat).toBe(0);
+    expect(t.buttonSeat).toBe(2);
+  });
 });
 
 describe('playAction', () => {
@@ -95,5 +126,28 @@ describe('cleanupAfterHand', () => {
     t.handState.settled = true; // 强制打标记
     cleanupAfterHand(t);
     expect(t.handState).toBeNull();
+  });
+
+  it('有人输光离座后，下一手仍能开局（回归：座位不连续导致 startHand 崩溃）', () => {
+    const t = getOrCreateTable('c2');
+    seedTable(t, [
+      { seat: 0, userId: 'a', nickname: 'A', chips: 1000, ready: true },
+      { seat: 1, userId: 'b', nickname: 'B', chips: 1000, ready: true },
+      { seat: 2, userId: 'c', nickname: 'C', chips: 1000, ready: true },
+    ]);
+    expect(maybeStartHand(t)).toBe(true);
+
+    // 模拟座位 1 输光并结算
+    t.handState.settled = true;
+    t.handState.seats.find((s) => s.seat === 1).chips = 0;
+    cleanupAfterHand(t);
+
+    expect(t.seats.has(1)).toBe(false); // 输光的人已经离座
+    expect(t.seats.size).toBe(2);
+
+    // 剩下座位 0 和 2 —— 座位号不连续，但下一手必须能正常开
+    expect(maybeStartHand(t)).toBe(true);
+    expect(t.handState.seats.map((s) => s.seat)).toEqual([0, 2]);
+    for (const s of t.handState.seats) expect(s.holeCards).toHaveLength(2);
   });
 });

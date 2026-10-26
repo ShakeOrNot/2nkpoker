@@ -1,7 +1,7 @@
 import { makeDeck, shuffle } from './deck.js';
 import { evaluate7 } from './evaluator.js';
 import { buildPots, awardPots, totalPot } from './pot.js';
-import { preflopOrder, postflopOrder } from './positions.js';
+import { preflopOrder, postflopOrder, nextOccupiedSeat } from './positions.js';
 import { validateAction, ActionError } from './actions.js';
 
 export const Street = Object.freeze({
@@ -33,10 +33,11 @@ const STREETS = ['PREFLOP', 'FLOP', 'TURN', 'RIVER'];
 /**
  * @typedef {Object} StartHandInput
  * @property {string} handId
- * @property {number} buttonSeat
+ * @property {number} buttonSeat   必须是 players 里的某个真实座位；不合法时顺时针顺延
  * @property {number} smallBlind
  * @property {number} bigBlind
  * @property {Array<{seat:number,userId?:string,nickname?:string,chips:number}>} players
+ *   座位号只需唯一（0 起），**不需要连续**——6 个固定座位里有人离座会留下空洞
  */
 
 /**
@@ -54,16 +55,24 @@ export function startHand(input) {
   const sorted = [...players].sort((a, b) => a.seat - b.seat);
   const n = sorted.length;
   for (let i = 0; i < n; i++) {
-    if (sorted[i].seat !== i) {
-      throw new Error('startHand: seats must be 0..n-1 consecutive');
+    const p = sorted[i];
+    // 座位号只要求"非负整数 + 不重复"，**不要求连续**：
+    // 有人输光离座/主动换座后座位号会留下空洞，牌局必须能继续。
+    if (!Number.isInteger(p.seat) || p.seat < 0) {
+      throw new Error(`startHand: seat must be a non-negative integer, got ${p.seat}`);
     }
-    if (sorted[i].chips <= 0) {
-      throw new Error(`startHand: seat ${i} has 0 chips`);
+    if (i > 0 && sorted[i - 1].seat === p.seat) {
+      throw new Error(`startHand: duplicate seat ${p.seat}`);
+    }
+    if (!(p.chips > 0)) {
+      throw new Error(`startHand: seat ${p.seat} has 0 chips`);
     }
   }
-  if (buttonSeat < 0 || buttonSeat >= n) {
-    throw new Error('startHand: buttonSeat out of range');
-  }
+
+  // 有人坐的真实座位，从小到大——后面所有"下一家"都沿这个环走
+  const ring = sorted.map((p) => p.seat);
+  // 按钮位必须落在一个真实座位上；否则顺时针顺延到下一个有人坐的座位
+  const btnSeat = ring.includes(buttonSeat) ? buttonSeat : nextOccupiedSeat(ring, buttonSeat);
 
   const deck = shuffle(makeDeck());
 
@@ -83,18 +92,18 @@ export function startHand(input) {
     hasActedThisStreet: false,
   }));
 
-  // 盲注座位
-  const sbSeat = n === 2 ? buttonSeat : nextOccupied(seats, buttonSeat);
-  const bbSeat = nextOccupied(seats, sbSeat);
+  // 盲注座位（单挑时按钮位就是 SB）
+  const sbSeat = n === 2 ? btnSeat : nextOccupiedSeat(ring, btnSeat);
+  const bbSeat = nextOccupiedSeat(ring, sbSeat);
 
   postBlind(seats, sbSeat, smallBlind);
   postBlind(seats, bbSeat, bigBlind);
 
-  // 发两张手牌：从 SB 起，绕两圈
+  // 发两张手牌：从 SB 起，沿座位环绕两圈
+  const dealOrder = rotateRing(ring, sbSeat);
   for (let round = 0; round < 2; round++) {
-    for (let i = 0; i < n; i++) {
-      const idx = (sbSeat + i) % n;
-      seats[idx].holeCards.push(deck.shift());
+    for (const seat of dealOrder) {
+      findSeat(seats, seat).holeCards.push(deck.shift());
     }
   }
 
@@ -103,7 +112,7 @@ export function startHand(input) {
     street: Street.PREFLOP,
     deck,
     board: [],
-    buttonSeat,
+    buttonSeat: btnSeat,
     smallBlind,
     bigBlind,
     seats,
@@ -129,7 +138,7 @@ export function startHand(input) {
   }
 
   // 翻前第一个行动者
-  const order = preflopOrder(buttonSeat, n);
+  const order = preflopOrder(btnSeat, n, ring);
   state.currentTurnSeat = firstAliveIn(order, state);
 
   return { state, events: [] };
@@ -259,7 +268,8 @@ function cloneState(state) {
 }
 
 function postBlind(seats, seat, amount) {
-  const s = seats[seat];
+  const s = findSeat(seats, seat);
+  if (!s) throw new Error(`postBlind: seat ${seat} not found`);
   const pay = Math.min(amount, s.chips);
   s.chips -= pay;
   s.betThisStreet += pay;
@@ -267,18 +277,21 @@ function postBlind(seats, seat, amount) {
   if (s.chips === 0) s.allIn = true;
 }
 
-function nextOccupied(seats, fromSeat) {
-  const n = seats.length;
-  for (let i = 1; i <= n; i++) {
-    const idx = (fromSeat + i) % n;
-    if (!seats[idx].sittingOut) return idx;
-  }
-  return fromSeat;
+/** 按座位号取座位（座位号可能不连续，不能用下标索引） */
+function findSeat(seats, seat) {
+  return seats.find((s) => s.seat === seat) ?? null;
+}
+
+/** 从环上的 startSeat 开始取一圈（座位号递增，绕回） */
+function rotateRing(ring, startSeat) {
+  const i = ring.indexOf(startSeat);
+  if (i < 0) return [...ring];
+  return [...ring.slice(i), ...ring.slice(0, i)];
 }
 
 function firstAliveIn(order, state) {
   for (const seat of order) {
-    const s = state.seats[seat];
+    const s = findSeat(state.seats, seat);
     if (!s) continue;
     if (s.folded || s.allIn || s.sittingOut || s.chips <= 0) continue;
     return seat;
@@ -287,11 +300,13 @@ function firstAliveIn(order, state) {
 }
 
 function findNextToAct(state, fromSeat) {
-  const n = state.seats.length;
-  if (n === 0) return null;
-  for (let i = 1; i <= n; i++) {
-    const idx = (fromSeat + i) % n;
-    const s = state.seats[idx];
+  const ring = state.seats.map((s) => s.seat);
+  if (ring.length === 0) return null;
+  const start = ring.indexOf(fromSeat);
+  if (start < 0) return null;
+  for (let i = 1; i <= ring.length; i++) {
+    const s = findSeat(state.seats, ring[(start + i) % ring.length]);
+    if (!s) continue;
     if (s.folded || s.allIn || s.sittingOut || s.chips <= 0) continue;
     if (!s.hasActedThisStreet || s.betThisStreet < state.currentBet) return s.seat;
   }
@@ -327,7 +342,11 @@ function advanceStreet(state) {
     return advanceStreet(state);
   }
 
-  const order = postflopOrder(state.buttonSeat, state.seats.length);
+  const order = postflopOrder(
+    state.buttonSeat,
+    state.seats.length,
+    state.seats.map((s) => s.seat),
+  );
   state.currentTurnSeat = firstAliveIn(order, state);
 
   return {

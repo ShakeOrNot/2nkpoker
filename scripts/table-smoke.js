@@ -63,8 +63,10 @@ async function main() {
   await p1;
   console.log('alice sat');
 
-  // Bob 坐下：等快照里出现 alice + bob
+  // Bob 坐下：Alice 和 Bob 都要看到 2 人。
+  // 注意：两个监听都必须在 emit 之前注册，否则会漏掉这次广播（本地服务器太快）。
   const p2 = waitForSnapshot(bob, (s) => countOccupied(s) === 2);
+  const pAlice = waitForSnapshot(alice, (s) => countOccupied(s) === 2);
   bob.emit('table:sit', { tableId: TABLE_ID, seat: 1, buyIn: 1000 }, (res) => {
     console.log('bob sit ack:', res);
   });
@@ -73,7 +75,7 @@ async function main() {
     .map((s) => `${s.seat}:${s.userId ?? '-'}`).join(', '));
 
   // Alice 也应该看到 2 人
-  const snapAlice = await waitForSnapshot(alice, (s) => countOccupied(s) === 2);
+  const snapAlice = await pAlice;
   console.log('alice sees seats:', snapAlice.seats
     .map((s) => `${s.seat}:${s.userId ?? '-'}`).join(', '));
 
@@ -94,12 +96,4 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   process.exit(1);
-  // 清理：所有客户端站起
-await new Promise((resolve) => {
-  alice.emit('table:stand', { tableId: TABLE_ID }, () => resolve());
-});
-await new Promise((resolve) => {
-  bob.emit('table:stand', { tableId: TABLE_ID }, () => resolve());
-});
-console.log('cleanup done');
 });

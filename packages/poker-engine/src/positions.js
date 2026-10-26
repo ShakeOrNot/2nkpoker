@@ -66,47 +66,82 @@ export function seatPositions(buttonSeat, numPlayers) {
 }
 
 /**
+ * 把"有人坐的座位"规范成从小到大的一圈。
+ *
+ * 不传 seatRing 时就退化成连续的 0..n-1（旧行为，保持向后兼容）；
+ * 传了就按真实座位号绕环——有人输光离座后座位号会出现空洞，
+ * 这类桌子只能靠 seatRing 表达（见 nextOccupiedSeat）。
+ *
+ * @param {number[]|null|undefined} seatRing
+ * @param {number} numPlayers
+ * @returns {number[]}
+ */
+function normalizeRing(seatRing, numPlayers) {
+  if (!seatRing) return Array.from({ length: numPlayers }, (_, i) => i);
+  const ring = [...new Set(seatRing)].sort((a, b) => a - b);
+  if (ring.length !== numPlayers) {
+    throw new Error(`seatRing 长度 ${ring.length} 与 numPlayers ${numPlayers} 不一致`);
+  }
+  return ring;
+}
+
+/** 从环上 startIndex 开始，按座位号递增取一圈 */
+function rotateFrom(ring, startIndex) {
+  return [...ring.slice(startIndex), ...ring.slice(0, startIndex)];
+}
+
+function buttonIndex(ring, buttonSeat, fnName) {
+  const i = ring.indexOf(buttonSeat);
+  if (i < 0) {
+    throw new Error(`${fnName}: buttonSeat ${buttonSeat} 不在座位列表 [${ring}] 里`);
+  }
+  return i;
+}
+
+/**
+ * 找 fromSeat 顺时针之后的第一个有人坐的座位（绕回最小座位）
+ * @param {number[]} occupiedSeats 有人坐的座位号（顺序不限、可重复）
+ * @param {number} fromSeat
+ * @returns {number|null} 一个都没有时返回 null
+ */
+export function nextOccupiedSeat(occupiedSeats, fromSeat) {
+  const ring = [...new Set(occupiedSeats)].sort((a, b) => a - b);
+  if (ring.length === 0) return null;
+  return ring.find((seat) => seat > fromSeat) ?? ring[0];
+}
+
+/**
  * 翻前行动顺序
  * 6-max: UTG -> HJ -> CO -> BTN -> SB -> BB
  * 2 人：BTN/SB -> BB
+ *
  * @param {number} buttonSeat
  * @param {number} numPlayers
+ * @param {number[]} [seatRing] 有人坐的真实座位号；不传则按 0..n-1 连续座位算
  * @returns {number[]} 座位号数组，按行动顺序
  */
-export function preflopOrder(buttonSeat, numPlayers) {
-  if (numPlayers === 2) {
-    return [buttonSeat, (buttonSeat + 1) % 2];
-  }
-  const positions = positionsFor(numPlayers);
-  const bbIdx = positions.indexOf('BB');
-  /** @type {number[]} */
-  const order = [];
-  for (let i = 1; i <= numPlayers; i++) {
-    const idx = (bbIdx + i) % numPlayers;
-    order.push((buttonSeat + idx) % numPlayers);
-  }
-  return order;
+export function preflopOrder(buttonSeat, numPlayers, seatRing = null) {
+  const ring = normalizeRing(seatRing, numPlayers);
+  const btn = buttonIndex(ring, buttonSeat, 'preflopOrder');
+  // 单挑：BTN(=SB) 先；3 人以上：BB 的下一位（UTG）先
+  const start = numPlayers === 2 ? btn : (btn + 3) % numPlayers;
+  return rotateFrom(ring, start);
 }
 
 /**
  * 翻后行动顺序
  * 6-max: SB -> BB -> UTG -> HJ -> CO -> BTN
  * 2 人：BB -> BTN/SB
+ *
  * @param {number} buttonSeat
  * @param {number} numPlayers
+ * @param {number[]} [seatRing] 有人坐的真实座位号；不传则按 0..n-1 连续座位算
  * @returns {number[]} 座位号数组，按行动顺序
  */
-export function postflopOrder(buttonSeat, numPlayers) {
-  if (numPlayers === 2) {
-    return [(buttonSeat + 1) % 2, buttonSeat];
-  }
-  const positions = positionsFor(numPlayers);
-  const sbIdx = positions.indexOf('SB');
-  /** @type {number[]} */
-  const order = [];
-  for (let i = 0; i < numPlayers; i++) {
-    const idx = (sbIdx + i) % numPlayers;
-    order.push((buttonSeat + idx) % numPlayers);
-  }
-  return order;
+export function postflopOrder(buttonSeat, numPlayers, seatRing = null) {
+  const ring = normalizeRing(seatRing, numPlayers);
+  const btn = buttonIndex(ring, buttonSeat, 'postflopOrder');
+  // 翻后永远从按钮的下一位（SB）开始
+  const start = (btn + 1) % numPlayers;
+  return rotateFrom(ring, start);
 }

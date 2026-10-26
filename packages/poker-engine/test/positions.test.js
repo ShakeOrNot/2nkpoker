@@ -6,6 +6,7 @@ import {
   seatPositions,
   preflopOrder,
   postflopOrder,
+  nextOccupiedSeat,
 } from '../src/index.js';
 
 describe('positionsFor', () => {
@@ -111,6 +112,68 @@ describe('postflopOrder', () => {
   it('单挑：BB 先，BTN 后', () => {
     expect(postflopOrder(0, 2)).toEqual([1, 0]);
     expect(postflopOrder(1, 2)).toEqual([0, 1]);
+  });
+});
+
+describe('稀疏座位（seatRing 参数）', () => {
+  const ring = [0, 2, 4];
+
+  it('不传 seatRing 时保持旧行为（连续座位）', () => {
+    expect(preflopOrder(0, 6)).toEqual([3, 4, 5, 0, 1, 2]);
+    expect(postflopOrder(0, 6)).toEqual([1, 2, 3, 4, 5, 0]);
+  });
+
+  it('3 人 0/2/4：翻前跨过空位，翻后从 SB 开始', () => {
+    expect(preflopOrder(0, 3, ring)).toEqual([0, 2, 4]);
+    expect(postflopOrder(0, 3, ring)).toEqual([2, 4, 0]);
+    // 按钮换到 2：SB=4, BB=0
+    expect(preflopOrder(2, 3, ring)).toEqual([2, 4, 0]);
+    expect(postflopOrder(2, 3, ring)).toEqual([4, 0, 2]);
+    // 按钮换到 4：SB=0, BB=2
+    expect(preflopOrder(4, 3, ring)).toEqual([4, 0, 2]);
+    expect(postflopOrder(4, 3, ring)).toEqual([0, 2, 4]);
+  });
+
+  it('单挑 2/4', () => {
+    expect(preflopOrder(2, 2, [2, 4])).toEqual([2, 4]);
+    expect(preflopOrder(4, 2, [2, 4])).toEqual([4, 2]);
+    expect(postflopOrder(2, 2, [2, 4])).toEqual([4, 2]);
+    expect(postflopOrder(4, 2, [2, 4])).toEqual([2, 4]);
+  });
+
+  it('座位列表顺序打乱也不影响结果', () => {
+    expect(preflopOrder(0, 3, [4, 0, 2])).toEqual([0, 2, 4]);
+  });
+
+  it('按钮位不在座位列表里报错', () => {
+    expect(() => preflopOrder(1, 3, ring)).toThrow();
+    expect(() => postflopOrder(1, 3, ring)).toThrow();
+  });
+
+  it('seatRing 长度与 numPlayers 不一致时报错', () => {
+    expect(() => preflopOrder(0, 4, ring)).toThrow();
+  });
+});
+
+describe('nextOccupiedSeat', () => {
+  it('顺时针找下一个有人坐的座位，末尾绕回最小座位', () => {
+    expect(nextOccupiedSeat([0, 2, 4], 0)).toBe(2);
+    expect(nextOccupiedSeat([0, 2, 4], 2)).toBe(4);
+    expect(nextOccupiedSeat([0, 2, 4], 4)).toBe(0);
+  });
+
+  it('fromSeat 本身是空位时取它之后的第一个', () => {
+    expect(nextOccupiedSeat([0, 2, 4], 1)).toBe(2);
+    expect(nextOccupiedSeat([0, 2, 4], 3)).toBe(4);
+  });
+
+  it('fromSeat 比所有座位都大时绕回最小座位', () => {
+    expect(nextOccupiedSeat([0, 2, 4], 5)).toBe(0);
+  });
+
+  it('输入顺序不影响结果，空列表返回 null', () => {
+    expect(nextOccupiedSeat([4, 0, 2], 0)).toBe(2);
+    expect(nextOccupiedSeat([], 0)).toBeNull();
   });
 });
 
