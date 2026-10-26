@@ -1,148 +1,79 @@
-# 2nk 德州扑克 · 手机端前端
+# 2nk 德州扑克 · 前端
 
-原生 ESM，**不需要构建、不需要 npm install**。手机竖屏、横屏、平板都能玩。
+原生 ESM，**零构建、零依赖**。改完刷新浏览器即可，不需要打包。
 
-```
+## 目录
+
+```text
 apps/web/
 ├── public/                 ← 静态站点（必须通过 http 打开，见下方说明）
-│   ├── index.html          （内含启动兜底：加载失败会直接说明原因）
+│   ├── index.html
 │   ├── css/app.css
+│   ├── img/
 │   └── js/
 │       ├── app.js          视图路由 + 全局工具条 + 未捕获错误兜底
-│       ├── store.js        状态层（把服务端事件收敛成一份可渲染状态）
+│       ├── store.js        状态层（把传输层事件收敛成一份可渲染状态）
 │       ├── core/           常量 / 配置 / DOM 小工具 / 格式化 / 纯逻辑
-│       ├── net/            HTTP 接口 / socket.io 封装 / 本机牌局记录 / 离线对手引擎
+│       ├── net/            HTTP 接口 / socket.io 封装 / 本机牌局记录 / 离线对手引擎 / 远端协议适配
 │       └── views/          登录、大厅、等待室、牌桌、操作栏、牌面
-├── start.mjs               一键启动（前端，可选连同后端）
-├── dev-server.mjs          零依赖静态服务器（含 /api 与 /socket.io 代理）
-└── test/                   零依赖测试（单元 + 模块冒烟 + 端到端点击）
+├── dev-server.mjs          零依赖静态服务器（含 /api、/socket.io 反向代理）
+└── test/                   零依赖测试（单元 + 模块冒烟 + 端到端）
 ```
 
-## 快速开始
-
-### 方式一：一键启动（推荐）
+## 怎么启动
 
 ```bash
-node apps/web/start.mjs                 # 只起前端（默认 8080）
-node apps/web/start.mjs --with-server   # 连 game-server 一起起（需要依赖已安装）
-node apps/web/start.mjs --port 9000
+node start.mjs            # 仓库根目录，一条命令起后端 + 前端
 ```
 
-打开 `http://localhost:8080` → 登录页点 **「离线练习（不需要后端）」** 就能立刻玩；
-后端起来后用「进入牌局大厅」走真实对战。
-
-> ⚠️ **不要用 `file://` 直接双击 index.html**：浏览器会拒绝加载 ES 模块，页面会停在启动界面并显示原因。
-> 页面必须通过 http 打开 —— 这正是 `start.mjs` / `dev-server.mjs` 存在的意义。
-
-### 方式二：连后端（手机也能用）
+只想起前端（纯静态、配合已有后端）：
 
 ```bash
-# 1. 启动后端（仓库根目录）
-pnpm -F game-server dev          # 监听 3001
-
-# 2. 启动前端静态服务器（自带 /api 与 /socket.io 代理）
-node apps/web/dev-server.mjs     # 默认 8080，可用 --port / --target 改
+node apps/web/dev-server.mjs --port 8080 --target http://127.0.0.1:3001
 ```
 
-然后：
-- 电脑：`http://localhost:8080`
-- 手机：连同一个 Wi-Fi，用电脑的局域网 IP，例如 `http://192.168.1.10:8080`（代理让前后端同源，避免 CORS）
+> ⚠️ **别用 `file://` 直接双击 index.html**：浏览器会拒绝加载 ES 模块，页面会停在启动占位并提示原因。
 
-### 方式三：连别人的服务器（另一套协议）
+## 前端怎么找后端
 
-如果目标后端**不是**本仓库的 `game-server`（例如 `http://43.135.53.83:3000`，一套无鉴权的
-Socket.IO 协议），前端会自动走**协议适配层**，把对方协议翻译成我们的 `table:*` / `game:*`：
+`core/config.js` 按优先级解析：
 
-```bash
-node apps/web/dev-server.mjs --port 8199 --no-proxy
-# 打开：http://localhost:8199/?api=http://43.135.53.83:3000&table=abc123&proto=remote
-```
+1. URL 参数：`?api=http://host:3001&ws=http://host:3001`
+2. `localStorage` 里的设置（登录页「服务器」折叠项）
+3. 同源：`dev-server.mjs` 已经代理 `/api`、`/socket.io`、`/tables`、`/dev`、`/health`
+4. 兜底：`http://<当前主机名>:3001`
 
-协议对照表（实测抓包）、翻译规则与已知限制见
-[`docs/remote-server-integration.md`](../../docs/remote-server-integration.md)。
+手机连电脑时用电脑的局域网地址 + 8080（同源代理，避免 CORS）。
 
-### 方式四：任意静态托管 + 直接指向后端
+## 三种传输
 
-页面会自动按 `?api=` 参数、其次是 localStorage 里保存的地址、最后是同源来解析后端：
+`store.js` 会根据配置选一个：
 
-```
-https://your-host/index.html?api=http://192.168.1.10:3001
-```
-
-> 注意：浏览器要求 HTTPS 页面只能连 HTTPS 后端（混合内容限制），内网调试建议用方式二。
-
-## 使用流程
-
-1. **登录**：输入用户名 → 前端调 `POST /dev/token` 换 JWT（生产环境可在高级设置里粘贴 A 服务签发的 JWT）
-2. **大厅**：
-   - *创建牌局*：选座位数（2~6）、盲注档位、带入筹码 → 进入等待室，房号/邀请链接可一键复制
-   - *加入牌局*：从列表点"加入"，或直接输入房号/粘贴邀请链接
-3. **等待室**：显示每个座位的人、筹码、是否准备；
-   - 牌局已开始 → 提示"牌局已开始，本手结束后可入座"，并实时显示阶段/底池/公共牌/仍在局中的人
-   - 一手结束 → "坐下"自动恢复可用
-4. **牌桌**：
-   - 底部操作栏：**弃牌 / 过牌 / 跟注**，以及 **下注/加注**（自定义金额 + 滑块 + 快捷比例）
-   - 快捷比例：**1/3 池 / 半池 / 2/3 池 / 满池 / 1.2 池 / 最小下注(加注) / 全下**，金额都用底池公式算好
-     （低于最小下注额、或与自己筹码上限重复的按钮会自动隐藏，避免出现点了会被服务端拒绝的按钮）
-   - 自定义金额**永远不会超过自己的筹码量**：超过会被拦下并提示"最多只能下到 X"（`amount` 是"本街下注到的总额"，不是增量）
-   - 轮到你时有 30 秒倒计时；超时服务端会自动过牌/弃牌，日志里标 `(timeout)`
-   - 右上角"日志"可看实时牌局流水，"邀请"复制邀请链接
-5. **结算**：一手结束弹出浮层——谁赢了、各自 ±多少筹码、亮出的牌与公共牌；牌桌每个座位上方也会显示 `+/−`
-
-## 移动端适配
-
-- **竖屏优先**：座位纵向排列、底部大按钮、下注用"输入框 + 滑块 + 快捷芯片"
-- **横屏 / 平板**：自动切换成**椭圆牌桌**，座位按角度绝对定位，操作栏压缩高度
-- **手动覆盖**：右上角工具条可强制「竖屏 / 横屏 / 自动」（`localStorage` 记住选择）
-- 适配 `viewport-fit=cover` 与 `env(safe-area-inset-*)`，刘海屏与手势条不遮挡按钮
-- 座位顺序以"我"为基准旋转，**自己永远在最下方**
+| 模式 | 触发 | 说明 |
+| :--- | :--- | :--- |
+| 真实 socket | 默认 | `net/socket.js`，连 Socket.IO `/game` 命名空间，JWT 走 `handshake.auth.token` |
+| 离线练习 | 登录页「离线练习」 | `net/mock-socket.js`，本地对手引擎，不需要后端 |
+| 远端协议适配 | `?proto=remote` 或目标不是本仓库后端 | `net/remote-protocol.js`，把对方协议翻译成本仓库的 `table:*` / `game:*` |
 
 ## 调试
 
 - 连接状态：右上角小圆点（绿=已连接 / 黄=连接中 / 红=已断开）
-- 顶部红色错误条：任何失败（包括未捕获的异常/未处理的 Promise）都会显示在这里，**不会静默失败**
-- 控制台：`window.__poker.store` 可以查看/修改状态，`window.__poker.store.reportError('...')` 手动弹一条
-- URL 参数：`?api=` 指定后端、`?table=` 指定房号（分享链接就是这个格式）
+- 顶部红色错误条：任何失败（含未捕获异常、未处理的 Promise）都会显示，**不会静默失败**
+- 控制台：`window.__poker.store` 查看/改状态，`window.__poker.store.reportError('...')` 手动弹提示
+- 地址参数：`?api=` 指定后端，`?table=` 指定房号（分享链接就是这个格式）
 
 ## 测试
 
 ```bash
-node apps/web/test/run-tests.mjs                      # 单元测试：97 个断言
-node apps/web/test/.dsh-tests/dom-smoke.mjs           # 18 个模块 import + 4 个阶段渲染
-node apps/web/test/.dsh-tests/e2e-smoke.mjs           # 真实装配 app.js，模拟点击走完整流程
+node apps/web/test/run-tests.mjs                    # 单元测试（零依赖，自带 vitest 替身）
+node apps/web/test/.dsh-tests/dom-smoke.mjs         # 模块 import + 各阶段渲染冒烟
+node apps/web/test/.dsh-tests/e2e-smoke.mjs         # 装配 app.js，模拟点击走完整流程
 ```
 
 真实浏览器联调（需要本机有 Edge/Chrome）：
 
 ```bash
-# 连本机离线引擎（纯本地，最稳）
-node apps/web/test/.dsh-tests/browser-check.mjs http://127.0.0.1:8080/
-
-# 连远端真实服务器：浏览器里的我们 + Node 里的对手，打完整一手
-node apps/web/dev-server.mjs --port 8199 --no-proxy     # 终端 1
-node apps/web/test/.dsh-tests/browser-remote-hand.mjs   # 终端 2
-```
-
-> 仓库根目录的 `node_modules` 是在别的机器上装的，本机依赖树不完整（跑不了 vitest）。所以测试自带了一个极小的 vitest 替身与浏览器桩放在 `test/.dsh-tests/`，**零依赖**即可运行。
->
-> `run-tests.mjs` 覆盖：下注金额校验（含"不超过自己筹码"）、快捷下注、合法动作推导、位置、结算与牌型评估、本机牌局记录、地址解析、两种传输的接口契约，以及离线对手引擎的完整对局（发牌 → 动作 → 结算 → 筹码守恒）。
-> `e2e-smoke.mjs` 额外守住一条本次踩过的坑：**每个阶段只有对应视图可见，且该视图里的按钮真的挂在 DOM 上**（曾经"创建牌局"面板忘了 append，点页签毫无反应且不报错）。
-
-真实浏览器里还可以这样验证（可选，需要本机有 Edge/Chrome）：
-
-```bash
 node apps/web/test/.dsh-tests/browser-check.mjs http://127.0.0.1:8080/
 ```
 
-它会用无头浏览器打开页面、依次点击登录/创建/坐下/准备，并打印控制台异常与截图目录。
-
-## 后端还需要补什么
-
-前端为了跑通「创建牌局 / 加入牌局 / 等待室」用了降级方案，真正的服务端能力需要按
-[`docs/backend-todo-rooms.md`](../../docs/backend-todo-rooms.md) 补：
-
-- `GET /tables`（牌局列表）← 最必要
-- `POST /tables`（创建牌局并保存座位数/盲注）
-- 进行中入座的"等下一手"语义（目前 `HAND_IN_PROGRESS`，前端已按此做成等待室）
-
-**接口上线后前端无需改代码**：会自动从"降级提示 + 本机记录"切换成服务端列表。
+协议（事件、快照字段、错误码）以 [docs/protocol.md](../../docs/protocol.md) 为准。

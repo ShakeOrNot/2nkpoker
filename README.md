@@ -1,87 +1,153 @@
-## 快速上手
+# ♠️ 2nkpoker
 
-### 环境要求
+基于 Node.js + 原生 ESM 的德州扑克 Web 应用。前后端分离、零构建纯原生前端，核心是一个可脱离网络单测的纯函数扑克引擎。
 
-- Node.js ≥ 20.6（推荐 20 或 22 LTS）
-- pnpm ≥ 9
+## ✨ 核心特性
 
-安装 pnpm：
+- **完整规则引擎**：2~6 人桌，翻牌前/翻牌/转牌/河牌全流程，主池 + 多层边池结算，短 all-in 规则。
+- **实时对战**：Socket.IO 毫秒级同步；服务端权威（客户端只发意图），回合、金额、版本号全部在服务端校验。
+- **连续对局**：一手结束自动开下一手；超时自动过牌/弃牌；断线 30 秒内可恢复原座位，超时自动离座。
+- **移动端优先**：原生 ESM + 零构建，竖屏/横屏两套牌桌布局。
+- **一条命令启动**：`node start.mjs`（或双击 `启动.cmd`）同时拉起前后端。
 
-```bash
-npm install -g pnpm
+> 牌局状态目前在**内存**里，重启即清空；Redis 持久化还没实现（见 [协议文档的已知限制](docs/protocol.md#9-已知限制尚未实现别照着写前端)）。
+
+## 🛠️ 技术栈
+
+| 模块 | 技术选型 |
+| :--- | :--- |
+| **前端** | 原生 HTML / CSS / JS (ES Modules) |
+| **后端** | Node.js, Fastify, Socket.IO |
+| **引擎** | 纯函数实现（高可测试性） |
+| **工具链** | pnpm Workspace, Vitest |
+
+## 📂 项目结构
+
+```text
+2nkpoker/
+├── apps/
+│   ├── game-server/       # 后端：Fastify + Socket.IO + 牌局状态机
+│   └── web/               # 前端：静态站点 + 开发代理（零构建）
+├── packages/
+│   ├── poker-engine/      # 核心：纯函数扑克引擎（发牌、比牌、边池、状态机）
+│   └── shared/            # 共享：牌面常量、错误码、格式化
+├── docs/protocol.md       # 协议与接口的唯一出处（HTTP / WS / 数据模型 / 错误码）
+├── scripts/               # 冒烟脚本（部分需要后端在跑）
+├── start.mjs              # 唯一启动入口（后端 + 前端）
+├── 启动.cmd               # Windows 双击启动（转调 start.mjs）
+├── .env.example           # 环境变量模板（全项目只此一份）
+└── README.md
 ```
 
-安装依赖
+## 🚀 快速开始
+
+### 1. 环境要求
+
+- **Node.js** ≥ 20.12（推荐 20/22/24 LTS；后端用 `process.loadEnvFile` 读 `.env`）
+- **pnpm** ≥ 9
+
+### 2. 安装与配置
 
 ```bash
-git clone https://github.com/<your-org>/2nkpoker.git
-cd 2nkpoker
 pnpm install
+cp .env.example .env      # Windows: copy .env.example .env
 ```
 
-启动后端
+`.env` 在**仓库根目录**，前后端、脚本、启动器都读这一份（改完重启生效）：
+
+| 变量 | 默认 | 说明 |
+| :--- | :--- | :--- |
+| `PORT` | 3001 | 后端端口 |
+| `WEB_PORT` | 8080 | 前端端口 |
+| `JWT_SECRET` | `dev_secret_change_me` | 生产必须换成强随机值 |
+| `JWT_ISSUER` / `JWT_AUDIENCE` | `2nkpoker` / `2nkpoker-web` | JWT 校验用 |
+| `ACTION_TIMEOUT_MS` | 30000 | 轮到某人行动的超时，超时自动过牌/弃牌 |
+| `RECONNECT_GRACE_MS` | 30000 | 掉线后保留座位的宽限期 |
+
+### 3. 启动
 
 ```bash
-cd apps/game-server
-cp .env.example .env
-pnpm dev
+node start.mjs                # 后端 3001 + 前端 8080
+node start.mjs --port 9000    # 换前端端口
+node start.mjs --game-port 4001
+node start.mjs --watch        # 后端改代码自动重启
 ```
 
-期望输出：game-server listening on 3001。
+然后打开 `http://127.0.0.1:8080`。
 
-启动前端
+- **一个人试玩**：登录页直接点「离线练习（不需要后端）」，或进大厅创建牌局。
+- **两个人试玩**：开一个**普通窗口** + 一个**无痕窗口**，各登录一次。普通窗口的多个标签共用同一登录态，坐不成两个玩家。
+- **手机试玩**：同一 Wi-Fi，用启动时打印的「同一 Wi-Fi」地址。
 
-新开一个终端：
+> 前端是原生 ES 模块，**必须通过 http 打开**（`file://` 会被浏览器拒绝）。`start.mjs` 就是干这个的。
+
+### 4. 分进程调试（可选）
+
+需要看两边日志时，开两个终端：
 
 ```bash
-pnpm -F @2nkpoker/web dev
+pnpm -F game-server dev                                   # 后端，带 --watch
+node apps/web/dev-server.mjs --port 8080 --target http://127.0.0.1:3001   # 前端
 ```
 
-浏览器打开 http://localhost:3000。
-
-拿一个测试 token
-
-```powershell
-# PowerShell
-$body = @{ nickname = "Tom" } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:3001/dev/token `
-  -ContentType "application/json" -Body $body
-```
-
-玩单文件 demo
+## 🧪 测试
 
 ```bash
-npx http-server apps/web/public -p 5173
-```
-
-浏览器打开 http://127.0.0.1:5173/demo.html。开两个标签，昵称不同，点坐下和准备。
-
-测试
-
-```bash
+# 引擎（含状态机）+ 后端（vitest）
 pnpm -r test
+
+# 前端：零依赖，不需要装 vitest
+node apps/web/test/run-tests.mjs
 ```
 
-期望：packages/shared、packages/poker-engine 全绿。
+需要后端在跑的冒烟脚本：
 
-文档
-
-· docs/protocol.md — WebSocket 协议
-· docs/frontend-contract.md — 前端契约
-· docs/error-codes.md — 错误码
-· docs/auth-contract.md — JWT 约定
-
-团队分工
-
-角色 负责
-A 后端架构、账号系统、数据库、部署
-B 游戏引擎、实时网关、牌局状态机
-C 前端架构、大厅、用户系统
-D 牌桌 UI、动画、运维
-E 美术、UI/UX
-
-License
-
-Private.
-
+```bash
+node scripts/play-smoke.js          # 两人真实打完一手
+node scripts/table-smoke.js         # 入座/站起/快照同步
+node scripts/sparse-seat-smoke.js   # 座位号不连续（0 和 3）也能开局
+node scripts/timeout-smoke.js       # 超时自动过牌/弃牌
+node scripts/reconnect-smoke.js     # 断线重连
 ```
+
+调试小贴士：
+
+- 前端零构建，改完直接刷新浏览器。
+- 右上角小圆点＝连接状态；顶部红条＝任何未捕获错误（不会静默失败）。
+- `window.__poker.store` 可以在控制台查看/改状态。
+- 地址参数：`?api=http://host:3001` 指定后端，`?table=房号` 直接进牌局。
+
+## 📦 生产部署
+
+**安全警告**：必须换掉 `JWT_SECRET`，并用 Nginx 配 HTTPS。
+
+**前端**：`apps/web/public` 是纯静态文件，整目录上传到 Nginx/CDN/对象存储即可。
+
+**后端**：没有构建步骤，直接用 Node 跑源码：
+
+```bash
+NODE_ENV=production node apps/game-server/src/server.js   # 记得配好 .env 或真实环境变量
+```
+
+建议用 PM2 / systemd / Docker 做进程守护。注意：
+
+- `NODE_ENV=production` 时 `POST /dev/token` 不会挂载，JWT 必须由外部 auth 服务签发
+- 牌局状态在内存里，**重启会清空所有牌局和筹码**；多实例部署前必须先做持久化/粘性会话
+
+## 📚 文档
+
+- [协议与接口约定](docs/protocol.md)：HTTP、WebSocket、数据模型、错误码、引擎工具清单、已知限制
+- [前端说明](apps/web/README.md)：目录结构、调试、离线/远端两种传输
+
+## 👥 团队分工
+
+| 成员 | 角色 | 负责模块 |
+| :---: | :--- | :--- |
+| **A** | 后端架构 | 用户系统、数据库设计、生产部署与运维 |
+| **B** | 游戏核心 | 游戏引擎、实时网关、牌局状态机 |
+| **C** | 前端开发 | 前端架构、大厅列表、用户注册与登录界面 |
+| **D** | 前端/运维 | 牌桌 UI 交互、动画效果、CI/CD 脚本 |
+| **E** | 视觉设计 | 品牌 Logo、牌桌视觉、卡牌/筹码图标、动效规范 |
+
+---
+*Private Project. All rights reserved.*

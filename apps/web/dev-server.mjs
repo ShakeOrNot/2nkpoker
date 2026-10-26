@@ -1,21 +1,23 @@
 #!/usr/bin/env node
 /**
- * 本地静态服务器（可选，零依赖）。
+ * 前端静态服务器（零依赖）：托管 apps/web/public，并把 API / WebSocket 反代到后端。
  *
  * 为什么需要它：
  *   1. 页面用的是原生 ESM（type="module"），file:// 直接打开会被浏览器拦；
  *   2. 手机访问电脑上的后端时，同源可以避免 CORS 与混合内容问题。
  *
- * 用法（默认不随项目启动，需要时手动跑）：
+ * 平时由仓库根的 start.mjs 自动拉起，一般不用手动跑。
+ * 单独调试前端时：
  *   node apps/web/dev-server.mjs
  *   node apps/web/dev-server.mjs --port 8080 --target http://127.0.0.1:3001
  *
- * 环境变量：WEB_PORT / GAME_SERVER
+ * 环境变量：WEB_PORT / PORT / GAME_SERVER（都来自仓库根的 .env）
  *
  * 行为：
- *   /            → apps/web/public 下的静态文件
- *   /api/*       → 转发到后端（自动去掉 /api 前缀）
- *   /socket.io/* → 转发到后端（含 WebSocket 升级）
+ *   /                             → apps/web/public 下的静态文件
+ *   /api/*                        → 后端（自动去掉 /api 前缀）
+ *   /socket.io/*                  → 后端（含 WebSocket 升级）
+ *   /tables*、/dev/*、/health、/ready → 后端（原样转发）
  */
 
 import { createServer, request as httpRequest } from 'node:http';
@@ -28,6 +30,12 @@ import { networkInterfaces } from 'node:os';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = resolve(here, 'public');
+
+// 单独运行时也读仓库根的 .env，和后端 / start.mjs 保持同一份配置
+const repoEnvFile = fileURLToPath(new URL('../../.env', import.meta.url));
+if (existsSync(repoEnvFile) && typeof process.loadEnvFile === 'function') {
+  process.loadEnvFile(repoEnvFile);
+}
 
 // 启动前自检：给"路径不对/文件不全"这种问题一个人话提示，而不是一堆堆栈
 if (!existsSync(join(ROOT, 'index.html')) || !existsSync(join(ROOT, 'js', 'app.js'))) {
@@ -46,10 +54,11 @@ function argValue(flag, fallback) {
 }
 
 const PORT = Number(argValue('--port', process.env.WEB_PORT ?? 8080));
-// 默认代理到远端那台后端。本仓库的 game-server 要先 pnpm install 才能起，
-// 默认值不能指向它：否则页面能打开，但所有 /api 与 /socket.io 都 502，
-// 表现就是"前端连不上后端"。
-const TARGET = new URL(argValue('--target', process.env.GAME_SERVER ?? 'http://43.135.53.83:3000'));
+// 默认代理到本机后端（PORT 也来自仓库根的 .env）。
+// start.mjs 启动时会显式传 --target，这里的默认值只影响"单独跑前端"的情况。
+const TARGET = new URL(
+  argValue('--target', process.env.GAME_SERVER ?? `http://127.0.0.1:${process.env.PORT ?? 3001}`),
+);
 /** --no-proxy：纯静态服务器，页面直连「服务器与高级设置」里填的地址 */
 const NO_PROXY = process.argv.includes('--no-proxy');
 
@@ -177,7 +186,7 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 // 与 start.mjs 一致：这里只用 ASCII 输出，避免 Windows 控制台（GBK）下中文变乱码。
-// 中文提示放在 启动前端.cmd 里显示。
+// 中文提示在 start.mjs 和 启动.cmd 里显示。
 server.on('error', (err) => {
   if (err?.code === 'EADDRINUSE') {
     console.error(`\n[warn] port ${PORT} is already in use - maybe a web server is already running.\n` +
@@ -210,26 +219,21 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`static dir : ${ROOT}`);
   // 监听 0.0.0.0，所以同一局域网内的设备可以直接访问下面这些地址
   if (lan.length) {
-    console.log('LAN access (same Wi-Fi, scan/open on phone):');
-    for (const ip of lan) {
-      console.log(`  http://${ip}:${PORT}`);
-      console.log(`  http://${ip}:${PORT}/?api=${TARGET.origin}&table=abc123&proto=remote`);
-    }
+    console.log('LAN access (same Wi-Fi, open on phone):');
+    for (const ip of lan) console.log(`  http://${ip}:${PORT}`);
     if (lan.length > 1) console.log('  (pick the address on the same subnet as your phone)');
   } else {
     console.log('LAN access: no LAN IPv4 found (are you connected to Wi-Fi / a cable?)');
   }
-  console.log(`firewall   : if a phone cannot open it, run this ONCE in an ADMIN prompt:`);
+  console.log('firewall   : if a phone cannot open it, run this ONCE in an ADMIN prompt:');
   console.log(`  netsh advfirewall firewall add rule name="2nkpoker-web-${PORT}" dir=in action=allow protocol=TCP localport=${PORT}`);
-  console.log(`  (if even ping between the phone and this PC fails, the Wi-Fi/router blocks`);
-  console.log(`   device-to-device traffic: use a phone hotspot or the remote backend instead)`);
   if (NO_PROXY) {
     console.log('proxy      : disabled (--no-proxy); the page talks directly to the address you configure in the UI');
   } else {
     console.log(`proxy      : ${TARGET.origin}`);
     console.log('  /api/*       -> backend (the /api prefix is stripped)');
     console.log('  /socket.io/* -> backend (HTTP polling + WebSocket upgrade)');
-    console.log('  for the bundled game-server add: --target http://127.0.0.1:3001');
+    console.log('  /tables, /dev/*, /health, /ready -> backend');
   }
-  console.log(`phone: same Wi-Fi, replace localhost with this PC LAN IP`);
+  console.log('phone: same Wi-Fi, replace localhost with this PC LAN IP');
 });

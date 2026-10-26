@@ -1,11 +1,41 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+
+/**
+ * 全项目只有一份 .env（仓库根目录）。
+ *
+ * 为什么不用 `node --env-file=.env`：
+ *   --env-file 的路径是相对**当前工作目录**的，换个目录启动就读不到。
+ *   这里按模块自身位置定位仓库根，无论从哪里启动都指向同一份配置。
+ *
+ * 优先级：真实环境变量 > .env（loadEnvFile 不会覆盖已存在的变量）。
+ */
+const envFilePath = fileURLToPath(new URL('../../../.env', import.meta.url));
+
+if (existsSync(envFilePath) && typeof process.loadEnvFile === 'function') {
+  process.loadEnvFile(envFilePath);
+}
 
 const schema = z.object({
   PORT: z.coerce.number().default(3001),
   JWT_SECRET: z.string().min(1),
   JWT_ISSUER: z.string().default('2nkpoker'),
   JWT_AUDIENCE: z.string().default('2nkpoker-web'),
-  REDIS_URL: z.string().default('redis://localhost:6379'),
 });
 
-export const env = schema.parse(process.env);
+const parsed = schema.safeParse(process.env);
+
+if (!parsed.success) {
+  const detail = parsed.error.issues
+    .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    .join('; ');
+  throw new Error(
+    `环境变量校验失败（${detail}）。\n` +
+      `  期望的配置文件：${envFilePath}\n` +
+      '  修法：在仓库根目录执行  cp .env.example .env  后重试。',
+  );
+}
+
+export const env = parsed.data;
+export { envFilePath };

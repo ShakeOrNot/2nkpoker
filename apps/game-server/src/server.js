@@ -1,8 +1,10 @@
+// env.js 必须最早求值：它负责把仓库根的 .env 读进 process.env，
+// 后面 actionTimer / disconnectManager 在模块顶层读超时配置就依赖这一步。
+import { env } from './env.js';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { Server } from 'socket.io';
-import { env } from './env.js';
 import { registerGameNamespace } from './ws/game.namespace.js';
 import { registerDevRoutes } from './dev/token.route.js';
 import { registerTablesRoutes } from './routes/tables.route.js';
