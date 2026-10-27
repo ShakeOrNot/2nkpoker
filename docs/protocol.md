@@ -88,11 +88,14 @@ type Action =
 
 - 所有事件都有 ack：成功 `{ ok: true, ... }`，失败 `{ ok: false, code, message? }`
 - `table:join` 只订阅房间，**不占座**；占座是 `table:sit`
+- `table:stand` **只离座、不退出房间**：人还留在房间里当旁观者（仍收快照），可以立刻重新 `table:sit`
+  - 真正退订房间是 `table:leave`（前端"返回大厅"走这条）
+  - `table:stand` 也可以取消排队
 - 断线后 30 秒内（`RECONNECT_GRACE_MS`）用同一 JWT 重新 `table:join` 会恢复原座位
 - 入座时如果这手牌还没结束，服务端返回 `{ ok: false, code: 'HAND_IN_PROGRESS', queued: true, seat: null }` 并把你放进等待队列：
   - 排队者**会**加入房间，能手牌期间观战（拿不到任何人的手牌）
   - 本手结束自动补位上桌（`ready: false`），随后正常 `table:ready` 参局
-  - `table:stand` 可以取消排队；断线会被自动移出队列
+  - 断线会被自动移出队列
 
 ### 4.2 服务端 → 客户端
 

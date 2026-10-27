@@ -5,6 +5,8 @@ import jwt from 'jsonwebtoken';
 const secret = process.env.JWT_SECRET;
 const issuer = process.env.JWT_ISSUER;
 const audience = process.env.JWT_AUDIENCE;
+// 默认本机 3001；换端口调试时用 GAME_URL 覆盖
+const BASE = process.env.GAME_URL ?? 'http://localhost:3001';
 
 function makeToken(sub, nickname) {
   return jwt.sign({ nickname, role: 'user' }, secret, {
@@ -13,7 +15,7 @@ function makeToken(sub, nickname) {
 }
 
 function connect(sub, nickname) {
-  return io('http://localhost:3001/game', { auth: { token: makeToken(sub, nickname) } });
+  return io(`${BASE}/game`, { auth: { token: makeToken(sub, nickname) } });
 }
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));

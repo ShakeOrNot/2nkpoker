@@ -5,6 +5,8 @@ import jwt from 'jsonwebtoken';
 const secret = process.env.JWT_SECRET;
 const issuer = process.env.JWT_ISSUER;
 const audience = process.env.JWT_AUDIENCE;
+// 默认本机 3001；换端口调试时用 GAME_URL 覆盖
+const BASE = process.env.GAME_URL ?? 'http://localhost:3001';
 
 function makeToken(sub, nickname) {
   return jwt.sign({ nickname, role: 'user' }, secret, {
@@ -14,7 +16,7 @@ function makeToken(sub, nickname) {
 
 function connect(sub, nickname) {
   const token = makeToken(sub, nickname);
-  return io('http://localhost:3001/game', { auth: { token } });
+  return io(`${BASE}/game`, { auth: { token } });
 }
 
 /** 等快照满足条件，捕获下一条就 resolve */
@@ -86,6 +88,45 @@ async function main() {
   });
   await p3;
   console.log('bob stood up, alice sees 1 person');
+
+  /* ---------- 回归：离座≠退出房间，应该能马上重新入座 ---------- */
+
+  // Bob 离座后仍在房间里：Alice 准备（会让服务端广播一次）时，Bob 也要能收到。
+  // 旧实现里 table:stand 会顺带 socket.leave，这一步会超时。
+  const pEcho = waitForSnapshot(bob, (s) => s.seats.some((x) => x.userId === 'alice' && x.ready));
+  await new Promise((r) => alice.emit('table:ready', { tableId: TABLE_ID, ready: true }, r));
+  await pEcho;
+  console.log('bob (stood up) still receives broadcasts — still in room');
+  await new Promise((r) => alice.emit('table:ready', { tableId: TABLE_ID, ready: false }, r));
+
+  // Bob 还在房间里（table:stand 不再退订），所以能收到广播并直接重新坐下
+  const pReSit = waitForSnapshot(bob, (s) => countOccupied(s) === 2);
+  bob.emit('table:sit', { tableId: TABLE_ID, seat: 1, buyIn: 1000 }, (res) => {
+    console.log('bob re-sit ack:', res);
+  });
+  const snapReSit = await pReSit;
+  console.log('bob re-sat, seats:', snapReSit.seats
+    .map((s) => `${s.seat}:${s.userId ?? '-'}`).join(', '));
+
+  // 再离座（仍在房间），然后 table:leave 才真正退订
+  const p3b = waitForSnapshot(alice, (s) => countOccupied(s) === 1);
+  bob.emit('table:stand', { tableId: TABLE_ID }, () => {});
+  await p3b;
+
+  // 等自己离座那条在途快照落地，再开始数（否则会把旧快照算进来）
+  await new Promise((r) => setTimeout(r, 400));
+  let afterLeave = 0;
+  bob.on('table:snapshot', () => { afterLeave += 1; });
+  await new Promise((r) => bob.emit('table:leave', { tableId: TABLE_ID }, r));
+
+  // Alice 站起来触发一次广播；Bob 已经退订，不应该再收到
+  await new Promise((r) => alice.emit('table:stand', { tableId: TABLE_ID }, r));
+  await new Promise((r) => setTimeout(r, 500));
+  if (afterLeave !== 0) {
+    console.error(`FAIL 退订房间后仍收到 ${afterLeave} 条快照`);
+    process.exit(1);
+  }
+  console.log('bob left the room, no more snapshots');
 
   await new Promise((r) => setTimeout(r, 300));
   alice.close();

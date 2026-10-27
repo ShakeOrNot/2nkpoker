@@ -770,6 +770,8 @@ export class Store {
     const tableId = this.state.room.tableId;
     if (!tableId) return { ok: false, code: 'TABLE_NOT_FOUND' };
     const wasSeated = this.mySeat() != null;
+    // 既没座位、也不在排队 → 本来就不用打扰服务端
+    if (!wasSeated && !this.state.room.queued) return { ok: true };
     const conn = await this.ensureSocket();
     if (!conn.ok) return conn;
 
@@ -887,6 +889,11 @@ export class Store {
       isMyTurn: myTurn,
     };
   }
+  /**
+   * 退出房间：退订服务端房间 + 清空本地牌局状态，并回到大厅。
+   * （只离座不要调这个 —— 离座用 stand()，人还留在房间里）
+   * @returns {Promise<void>}
+   */
   async leaveRoom() {
   if (!this.state.room.tableId) return;
   // 通知后端退订
@@ -895,6 +902,10 @@ export class Store {
   }
   // 清空前端本地状态
   this.patchRoom({ tableId: '', snapshot: null, actionRequest: null, lastResult: null, log: [], notice: '', queued: false });
+  // 房间都没了还停在 waiting/table 只会渲染出一个空壳界面（房号 ----、按钮全灰）
+  if (this.state.phase === 'waiting' || this.state.phase === 'table') {
+    this.patch({ phase: 'lobby' });
+  }
   }
 }
 

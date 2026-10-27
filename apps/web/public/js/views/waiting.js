@@ -82,9 +82,7 @@ export class WaitingView extends View {
     this.backBtn = button({
       label: '返回大厅',
       className: 'btn-ghost btn-sm',
-      onClick: () => {
-        this.store.patch({ phase: 'lobby' });
-      },
+      onClick: () => void this.backToLobby(),
     });
     header.appendChild(this.backBtn);
     header.appendChild(tag('div', 'header-title', '等待室'));
@@ -216,10 +214,11 @@ export class WaitingView extends View {
     setDisabled(this.standBtn, false);
     if (!res.ok) {
       toast(res.message || '离座失败', 'error');
-    } else {
-      // 离座成功后，直接退出这个房间，免得卡在等待室
-      await this.store.leaveRoom();
+      return;
     }
+    // 离座只在牌局里让位，人还留在等候室（服务端也不会把人踢出房间），
+    // 所以座位表继续实时更新，可以马上重新坐下 —— 不要在这里 leaveRoom。
+    toast('已离座，可以重新选择座位', 'info');
   }
 
   /** 取消"排队等待下一手"（服务端会把队列里的自己摘掉） */
@@ -227,6 +226,21 @@ export class WaitingView extends View {
     const res = await this.store.stand();
     if (!res.ok) toast(res.message || '取消排队失败', 'error');
     else toast('已取消排队', 'info');
+  }
+
+  /**
+   * 返回大厅：
+   * - 手牌进行中 → 保持订阅挂机（前端会自动过牌/弃牌）
+   * - 否则先离座、再退出房间，避免同时订阅两张桌子
+   */
+  async backToLobby() {
+    if (handRunning(this.store.state.room.snapshot?.hand)) {
+      this.store.patch({ phase: 'lobby' });
+      toast('牌局进行中，已在大厅挂机，轮到你会自动操作', 'info');
+      return;
+    }
+    if (this.store.mySeat() != null) await this.store.stand();
+    await this.store.leaveRoom();
   }
 
   /**

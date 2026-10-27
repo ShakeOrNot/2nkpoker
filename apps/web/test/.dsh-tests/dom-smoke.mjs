@@ -280,6 +280,62 @@ if (!failed) {
     failed++;
     console.log(`  FAIL  轮到我的操作栏: ${err?.message ?? err}`);
   }
+
+  /* ---- 回归：等候室里离座不能把人踢出房间（否则无法重新入座、UI 变成空壳） ---- */
+  try {
+    const appStore = globalThis.window.__poker?.store;
+    const waiting = globalThis.window.__poker?.views?.waiting;
+    if (!appStore || !waiting) throw new Error('app.js 没有暴露 store/views');
+
+    const idleSnapshot = {
+      ...fakeSnapshot,
+      hand: null,
+      seats: [
+        { seat: 0, userId: 'me', nickname: '我', chips: 1000, ready: false, connected: true },
+        { seat: 1, userId: 'bot_1', nickname: '阿豪', chips: 1000, ready: false, connected: true },
+      ],
+    };
+
+    appStore.state.session = { token: 't', userId: 'me', nickname: '我', expiresAt: 0 };
+    appStore.state.connection = 'online';
+    appStore.state.phase = 'waiting';
+    appStore.state.room = { ...appStore.state.room, tableId: 'demo01', snapshot: idleSnapshot, queued: false };
+
+    const calls = [];
+    appStore.socket = {
+      connected: true,
+      request: async (event, payload) => {
+        calls.push({ event, payload });
+        return { ok: true };
+      },
+      close() {},
+    };
+    appStore.onChange();
+
+    await waiting.doStand();
+
+    if (!calls.some((c) => c.event === 'table:stand')) throw new Error('离座没有发 table:stand');
+    if (calls.some((c) => c.event === 'table:leave')) throw new Error('离座后不应该退订房间（table:leave）');
+    if (appStore.state.room.tableId !== 'demo01') throw new Error(`离座后房间被清空：${appStore.state.room.tableId}`);
+    if (appStore.state.phase !== 'waiting') throw new Error(`离座后阶段变成了 ${appStore.state.phase}`);
+
+    // 服务端离座后推来的快照：我的座位空出来，房间照旧
+    const afterStand = {
+      ...idleSnapshot,
+      seats: idleSnapshot.seats.map((s) =>
+        s.userId === 'me' ? { seat: s.seat, userId: null, nickname: '', chips: 0, ready: false, connected: false } : s,
+      ),
+    };
+    appStore.applySnapshot(afterStand);
+
+    if (waiting.roomIdEl.textContent !== 'demo01') throw new Error(`房号显示异常：${waiting.roomIdEl.textContent}`);
+    if (waiting.sitBtn.disabled) throw new Error('离座后「坐下」按钮被禁用，无法重新入座');
+    if (!waiting.standBtn.disabled) throw new Error('离座后「离座」按钮还应该禁用');
+    console.log('  ok    等候室离座后仍留在房间，可以重新入座');
+  } catch (err) {
+    failed++;
+    console.log(`  FAIL  等候室离座后重新入座: ${err?.message ?? err}`);
+  }
 }
 
 console.log(failed ? `DOM 冒烟：${failed} 个失败` : 'DOM 冒烟：全部通过');

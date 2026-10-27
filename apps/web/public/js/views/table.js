@@ -47,15 +47,16 @@ export class TableView extends View {
       onClick: () => {
         const running = handRunning(this.store.state.room.snapshot?.hand);
         if (running) {
-          // 局中挂机
+          // 局中挂机：保持订阅，前端会自动过牌/弃牌
           this.store.patch({ phase: 'lobby' });
           toast('牌局进行中，已在大厅挂机，轮到你会自动操作', 'info');
-        } else {
-          // 局外正常退出，自动站起
-          this.store.stand().then(() => {
-            this.store.patch({ phase: 'lobby' });
-          });
+          return;
         }
+        // 局外正常退出：先离座（如果还坐着），再退出房间，避免同时订阅两张桌子
+        void (async () => {
+          if (this.store.mySeat() != null) await this.store.stand();
+          await this.store.leaveRoom();
+        })();
       },
     });
     header.appendChild(this.leaveBtn);

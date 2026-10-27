@@ -133,13 +133,10 @@ export function registerTableSit(nsp, socket) {
       t.userToSeat.delete(userId);
       t.version += 1;
 
-      // 关键修复：先把最新快照单独发给自己，然后再把自己移出房间
-      const forSeat = null; 
-      socket.emit('table:snapshot', toTableSnapshot(t, forSeat));
-
-      socket.leave(`table:${tableId}`);
-      socket.data.tableId = undefined;
+      // 只离座，**不退出房间**：留在房间里当旁观者，随时可以重新入座。
+      // （真正退订房间是 table:leave；这样"等候室离座"不会把人赶出房间）
       socket.data.seat = undefined;
+      socket.emit('table:snapshot', toTableSnapshot(t, null));
 
       // 再广播给房间里剩下的其他人
       broadcastTable(nsp, t);
