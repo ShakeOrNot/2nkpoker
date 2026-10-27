@@ -89,7 +89,10 @@ type Action =
 - 所有事件都有 ack：成功 `{ ok: true, ... }`，失败 `{ ok: false, code, message? }`
 - `table:join` 只订阅房间，**不占座**；占座是 `table:sit`
 - 断线后 30 秒内（`RECONNECT_GRACE_MS`）用同一 JWT 重新 `table:join` 会恢复原座位
-- 入座时如果这手牌还没结束，服务端返回 `{ ok: false, code: 'HAND_IN_PROGRESS', queued: true }` 并把你放进等待队列
+- 入座时如果这手牌还没结束，服务端返回 `{ ok: false, code: 'HAND_IN_PROGRESS', queued: true, seat: null }` 并把你放进等待队列：
+  - 排队者**会**加入房间，能手牌期间观战（拿不到任何人的手牌）
+  - 本手结束自动补位上桌（`ready: false`），随后正常 `table:ready` 参局
+  - `table:stand` 可以取消排队；断线会被自动移出队列
 
 ### 4.2 服务端 → 客户端
 
@@ -160,7 +163,7 @@ type HandSnapshot = {
 };
 
 type HandResult = {
-  pots: { amount: number; eligibleSeats: number[] }[];   // 每层独立，不合并
+  pots: { amount: number; eligibleSeats: number[]; contributorSeats: number[] }[];   // 每层独立，不合并
   payouts: Record<number, number>;    // 座位号 -> 赢得筹码，只有赢家出现
   revealed: Record<number, string[]>; // 摊牌时亮出的手牌
   forcedWinnerSeat: number | null;    // 只剩一人时的强制赢家
@@ -238,12 +241,15 @@ type HandResult = {
 
 - `buildPots(contributions)` → `Pot[]`，每层独立，**不合并**
   - `contributions`: `[{ seat, amount, folded }]`
-  - `Pot`: `{ amount, eligibleSeats: number[] }`
+  - `Pot`: `{ amount, eligibleSeats: number[], contributorSeats: number[] }`
+  - `contributorSeats` 含**已弃牌**的出资者，用于孤池退款
 - `totalPot(pots)`
 - `awardPots(pots, handStrengthBySeat)`
   - 每层独立找 eligibleSeats 中牌力最高者
   - 多人并列 → 平分；余数给**座位号最小**的赢家
-  - 返回 `Map<seat, chips>`，只包含赢家
+  - 某层 `eligibleSeats` 为空（没人有资格争）→ 按人头**退还给该层出资者**，不会凭空消失
+  - 返回 `Map<seat, chips>`，只包含拿到筹码的座位（含退款）
+  - 不变式：`sum(payouts) === totalPot(pots)`，随机对局测试里有断言
 
 ### 下注快捷（`poker-engine/betSizing.js`）
 
@@ -278,8 +284,6 @@ type HandResult = {
 
 | 限制 | 影响 | 位置 |
 | :--- | :--- | :--- |
-| 排队入座不推送快照 | 排队后 socket 没进房间，看不到自己何时入座 | `ws/handlers/table.sit.js` |
-| 弃牌玩家的超额投入被吞 | `eligibleSeats` 为空的池层直接跳过，筹码不守恒 | `poker-engine/pot.js` |
 | 没有 Redis 持久化 | 服务重启后牌局/筹码全部丢失（纯内存） | `state/tableManager.js` |
 | 没有限流 | `RATE_LIMITED` 只是预留码 | — |
 | 前端复制了一份引擎逻辑 | `apps/web/public/js/core/logic.js` 与 `poker-engine` 各自演进，存在漂移风险 | `core/logic.js` |
