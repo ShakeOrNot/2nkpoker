@@ -96,10 +96,16 @@ function lanAddress() {
 const children = [];
 let shuttingDown = false;
 
-function start(label, command, cwd) {
+/**
+ * @param {string} label
+ * @param {string[]} command
+ * @param {string} cwd
+ * @param {Record<string, string>} [env] 额外的环境变量（覆盖 .env 里的同名项）
+ */
+function start(label, command, cwd, env = {}) {
   const child = spawn(command[0], command.slice(1), {
     cwd,
-    env: process.env,
+    env: { ...process.env, ...env },
     stdio: 'inherit',
   });
   child.on('exit', (code, signal) => {
@@ -149,14 +155,14 @@ start('后端', [
   node,
   ...(WATCH ? ['--watch'] : []),
   join(root, 'apps', 'game-server', 'src', 'server.js'),
-], join(root, 'apps', 'game-server'));
+], join(root, 'apps', 'game-server'), { PORT: String(GAME_PORT) });
 
 start('前端', [
   node,
   join(root, 'apps', 'web', 'dev-server.mjs'),
   '--port', String(WEB_PORT),
   '--target', TARGET,
-], root);
+], root, { WEB_PORT: String(WEB_PORT) });
 
 const lan = lanAddress();
 
