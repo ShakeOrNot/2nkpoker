@@ -118,10 +118,10 @@ describe('buildPots - 多人 all-in 多层边池', () => {
       { seat: 3, amount: 400, folded: false },
     ]);
     expect(pots).toHaveLength(4);
-    expect(pots[0]).toEqual({ amount: 400, eligibleSeats: [0, 1, 2, 3] });
-    expect(pots[1]).toEqual({ amount: 300, eligibleSeats: [1, 2, 3] });
-    expect(pots[2]).toEqual({ amount: 200, eligibleSeats: [2, 3] });
-    expect(pots[3]).toEqual({ amount: 100, eligibleSeats: [3] });
+    expect(pots[0]).toEqual({ amount: 400, eligibleSeats: [0, 1, 2, 3], contributorSeats: [0, 1, 2, 3] });
+    expect(pots[1]).toEqual({ amount: 300, eligibleSeats: [1, 2, 3], contributorSeats: [1, 2, 3] });
+    expect(pots[2]).toEqual({ amount: 200, eligibleSeats: [2, 3], contributorSeats: [2, 3] });
+    expect(pots[3]).toEqual({ amount: 100, eligibleSeats: [3], contributorSeats: [3] });
     expect(totalPot(pots)).toBe(1000);
   });
 
@@ -175,8 +175,8 @@ describe('buildPots - 多人 all-in 多层边池', () => {
       { seat: 3, amount: 200, folded: false },
     ]);
     expect(pots).toHaveLength(2);
-    expect(pots[0]).toEqual({ amount: 400, eligibleSeats: [0, 1, 2, 3] });
-    expect(pots[1]).toEqual({ amount: 200, eligibleSeats: [2, 3] });
+    expect(pots[0]).toEqual({ amount: 400, eligibleSeats: [0, 1, 2, 3], contributorSeats: [0, 1, 2, 3] });
+    expect(pots[1]).toEqual({ amount: 200, eligibleSeats: [2, 3], contributorSeats: [2, 3] });
     expect(totalPot(pots)).toBe(600);
   });
 
@@ -188,10 +188,10 @@ describe('buildPots - 多人 all-in 多层边池', () => {
     { seat: 3, amount: 400, folded: false },
   ]);
     expect(pots).toHaveLength(4);
-    expect(pots[0]).toEqual({ amount: 400, eligibleSeats: [1, 2, 3] });
-    expect(pots[1]).toEqual({ amount: 300, eligibleSeats: [1, 2, 3] });
-    expect(pots[2]).toEqual({ amount: 200, eligibleSeats: [2, 3] });
-    expect(pots[3]).toEqual({ amount: 100, eligibleSeats: [3] });
+    expect(pots[0]).toEqual({ amount: 400, eligibleSeats: [1, 2, 3], contributorSeats: [0, 1, 2, 3] });
+    expect(pots[1]).toEqual({ amount: 300, eligibleSeats: [1, 2, 3], contributorSeats: [1, 2, 3] });
+    expect(pots[2]).toEqual({ amount: 200, eligibleSeats: [2, 3], contributorSeats: [2, 3] });
+    expect(pots[3]).toEqual({ amount: 100, eligibleSeats: [3], contributorSeats: [3] });
     expect(totalPot(pots)).toBe(1000);
     expect(pots[0].amount).toBe(400);
     expect(pots[0].eligibleSeats).toEqual([1, 2, 3]);
@@ -210,7 +210,7 @@ describe('buildPots - 多人 all-in 多层边池', () => {
       { seat: 1, amount: 500, folded: false },
     ]);
     expect(pots).toHaveLength(1);
-    expect(pots[0]).toEqual({ amount: 1000, eligibleSeats: [0, 1] });
+    expect(pots[0]).toEqual({ amount: 1000, eligibleSeats: [0, 1], contributorSeats: [0, 1] });
   });
 });
 describe('awardPots - 单人赢', () => {
@@ -322,19 +322,37 @@ describe('awardPots - 平分', () => {
 });
 
 describe('awardPots - 弃牌与孤池', () => {
-  it('弃牌玩家的孤池（eligibleSeats 为空）被跳过', () => {
+  it('无人有资格争的池层：原路退还给出资者，不会凭空消失', () => {
     const pots = buildPots([
       { seat: 0, amount: 300, folded: true },
       { seat: 1, amount: 100, folded: false },
       { seat: 2, amount: 100, folded: false },
     ]);
-    // pots[1] = { amount: 200, eligibleSeats: [] }  <- 跳过
+    // pots[1] = { amount: 200, eligibleSeats: [], contributorSeats: [0] }
     const w = awardPots(pots, new Map([[1, 500], [2, 100]]));
     // pots[0] = 300，1 牌最强，1 拿 300
     expect(w.get(1)).toBe(300);
-    // pots[1] 没人拿，钱留在桌上（后续状态机处理退还）
-    expect(w.get(0)).toBeUndefined();
+    // 顶层 200 只有座位 0 投过 → 退还给他
+    expect(w.get(0)).toBe(200);
     expect(w.get(2)).toBeUndefined();
+    // 守恒：派彩总额 == 池子总额
+    const sum = [...w.values()].reduce((a, b) => a + b, 0);
+    expect(sum).toBe(totalPot(pots));
+    expect(sum).toBe(500);
+  });
+
+  it('多人平分的孤池层：按人头均分，除不尽给最小座位', () => {
+    const pots = buildPots([
+      { seat: 0, amount: 150, folded: true },
+      { seat: 1, amount: 150, folded: true },
+      { seat: 2, amount: 100, folded: false },
+    ]);
+    // pots[1] = { amount: 100, eligibleSeats: [], contributorSeats: [0, 1] }
+    const w = awardPots(pots, new Map([[2, 500]]));
+    expect(w.get(2)).toBe(300);
+    expect(w.get(0)).toBe(50);
+    expect(w.get(1)).toBe(50);
+    expect([...w.values()].reduce((a, b) => a + b, 0)).toBe(totalPot(pots));
   });
 });
 

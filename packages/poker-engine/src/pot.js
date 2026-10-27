@@ -7,8 +7,9 @@
 
 /**
  * @typedef {Object} Pot
- * @property {number} amount
- * @property {number[]} eligibleSeats
+ * @property {number} amount             这一层的筹码总额
+ * @property {number[]} eligibleSeats    未弃牌、有资格争这层的人（升序）
+ * @property {number[]} contributorSeats 为这层投过钱的人（含已弃牌，升序）
  */
 
 /**
@@ -38,8 +39,10 @@ export function buildPots(contributions) {
       .map((c) => c.seat)
       .sort((a, b) => a - b);
 
+    const contributorSeats = contributors.map((c) => c.seat).sort((a, b) => a - b);
+
     if (amount > 0) {
-      pots.push({ amount, eligibleSeats });
+      pots.push({ amount, eligibleSeats, contributorSeats });
     }
     prev = level;
   }
@@ -60,6 +63,9 @@ export function totalPot(pots) {
  * - 每层池子，取 eligibleSeats 中牌力最大的
  * - 多个并列第一 → 平分
  * - 除不尽 → 余数给座位号最小的赢家
+ * - 某层没有任何人有资格争（eligibleSeats 为空）→ **原路退还**给这层的出资者，
+ *   不能凭空蒸发（否则筹码不守恒）。这种层在当前状态机里产生不出来，
+ *   属于防御性处理：将来若出现"投钱后弃牌且没人跟到"的路径也不会漏钱。
  *
  * @param {Pot[]} pots
  * @param {Map<number, number>} handStrengthBySeat  座位 -> 牌力（数字越大越强）
@@ -75,7 +81,7 @@ export function awardPots(pots, handStrengthBySeat) {
 
   for (const pot of pots) {
     if (pot.eligibleSeats.length === 0) {
-      // 没人有资格争（比如弃牌玩家留下的孤池），先跳过
+      refundLayer(pot, add);
       continue;
     }
 
@@ -104,4 +110,19 @@ export function awardPots(pots, handStrengthBySeat) {
   }
 
   return winnings;
+}
+
+/**
+ * 无人可争的池层：退还给这层的出资者。
+ * 同一层里每个出资者投的钱必然一样多（层高相同），所以平分即按投入比例退还。
+ * @param {Pot} pot
+ * @param {(seat: number, amount: number) => void} add
+ */
+function refundLayer(pot, add) {
+  const seats = [...new Set(pot.contributorSeats ?? [])].sort((a, b) => a - b);
+  if (!seats.length || pot.amount <= 0) return;
+  const share = Math.floor(pot.amount / seats.length);
+  const remainder = pot.amount - share * seats.length;
+  for (const seat of seats) add(seat, share);
+  add(seats[0], remainder);
 }

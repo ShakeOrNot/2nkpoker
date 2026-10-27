@@ -407,6 +407,38 @@ describe('筹码守恒（随机局）', () => {
       expect(s.settled).toBe(true);
       const total = s.seats.reduce((a, x) => a + x.chips, 0);
       expect(total).toBe(n * initChips);
+
+      // 派彩总额必须等于池子总额：任何一层都不能被吞掉
+      const potTotal = s.result.pots.reduce((a, p) => a + p.amount, 0);
+      const paid = Object.values(s.result.payouts).reduce((a, b) => a + b, 0);
+      expect(paid).toBe(potTotal);
+      for (const pot of s.result.pots) expect(pot.amount).toBeGreaterThan(0);
     }
+  });
+
+  it('随机局里不会出现"无人可争"的池层（孤池只可能是防御性代码路径）', () => {
+    let deadLayers = 0;
+    for (let i = 0; i < 150; i++) {
+      const n = 2 + (i % 5);
+      const { state } = startHand({
+        handId: `d${i}`, buttonSeat: i % n, smallBlind: 10, bigBlind: 20,
+        players: players(n, 1000),
+      });
+      let s = state;
+      let guard = 0;
+      while (!s.settled && guard++ < 200) {
+        const seat = s.currentTurnSeat;
+        const me = s.seats.find((x) => x.seat === seat);
+        const toCall = s.currentBet - me.betThisStreet;
+        const action = toCall === 0
+          ? { type: 'check' }
+          : (Math.random() < 0.5 ? { type: 'fold' } : { type: 'call' });
+        s = applyAction(s, seat, action).state;
+      }
+      for (const pot of s.result.pots) {
+        if (pot.eligibleSeats.length === 0) deadLayers++;
+      }
+    }
+    expect(deadLayers).toBe(0);
   });
 });
