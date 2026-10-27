@@ -88,11 +88,12 @@ export function playAction(t, seat, action, expectedVersion) {
 }
 
 /**
- * 结算后清理桌子：把 settle 结果同步回座位、清空 handState
+ * 结算后清理桌子：把 settle 结果同步回座位、清空 handState、把排队的人拉上座位
  * @param {any} t
+ * @returns {Array<{ userId: string, seat: number }>} 本手结束后从排队补位上桌的人
  */
 export function cleanupAfterHand(t) {
-  if (!t.handState || !t.handState.settled) return;
+  if (!t.handState || !t.handState.settled) return [];
 
   // 1. 同步筹码
   for (const hs of t.handState.seats) {
@@ -112,24 +113,28 @@ export function cleanupAfterHand(t) {
   t.handState = null;
 
   // 4. 处理排队队列：把还在等待的人拉上座位
+  /** @type {Array<{ userId: string, seat: number }>} */
+  const seated = [];
   if (Array.isArray(t.sitQueue) && t.sitQueue.length > 0) {
     for (const q of t.sitQueue) {
       if (t.userToSeat.has(q.userId)) continue; // 已经在座位上了
       const free = findFreeSeat(t, q.preferredSeat);
-      if (free != null) {
-        t.seats.set(free, {
-          seat: free,
-          userId: q.userId,
-          nickname: q.nickname,
-          chips: q.buyIn,
-          ready: false,
-          connected: true, // 注意：如果重连逻辑还没处理，先设为 true 兜底
-        });
-        t.userToSeat.set(q.userId, free);
-      }
+      if (free == null) continue; // 没位置了，这人这次补不上（下次重新排队）
+      t.seats.set(free, {
+        seat: free,
+        userId: q.userId,
+        nickname: q.nickname,
+        chips: q.buyIn,
+        ready: false,
+        // 真实连接状态由调用方按 socket 是否存在修正（见 actionTimer.broadcastResult）
+        connected: true,
+      });
+      t.userToSeat.set(q.userId, free);
+      seated.push({ userId: q.userId, seat: free });
     }
     t.sitQueue = []; // 队列清空
   }
 
   t.version += 1;
+  return seated;
 }

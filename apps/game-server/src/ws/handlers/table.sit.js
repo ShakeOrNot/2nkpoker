@@ -46,7 +46,7 @@ export function registerTableSit(nsp, socket) {
       if (free == null) {
         return replyAck(ack, { ok: false, code: 'TABLE_FULL', message: 'no free seat' });
       }
-            if (t.handState && !t.handState.settled) {
+      if (t.handState && !t.handState.settled) {
         // 如果已经在队列里，不重复添加
         const existing = (t.sitQueue ?? []).find((q) => q.userId === userId);
         if (!existing) {
@@ -56,14 +56,24 @@ export function registerTableSit(nsp, socket) {
             nickname: nickname ?? `user_${userId.slice(0, 6)}`,
             buyIn,
             preferredSeat: preferredSeat ?? -1,
+            requestedAt: Date.now(),
           });
           t.version += 1;
-          broadcastTable(nsp, t);
         }
+        // 排队者也要进房间、记下 tableId：
+        //   1. 这手牌期间能实时观战（看到进度，不至于干等）
+        //   2. 本手结束被拉上座位时能立刻收到带自己手牌的快照
+        //   3. 断线时 disconnectManager 能据此把他从队列里摘掉
+        // 注意：这里**不设** socket.data.seat —— 还没坐下，快照里不该有手牌。
+        socket.join(`table:${tableId}`);
+        socket.data.tableId = tableId;
+        socket.data.seat = undefined;
+        broadcastTable(nsp, t);
         return replyAck(ack, {
           ok: false,
           code: 'HAND_IN_PROGRESS',
           queued: true,
+          seat: null,
           message: '牌局进行中，已加入排队，本手结束后自动入座',
         });
       }
@@ -99,12 +109,16 @@ export function registerTableSit(nsp, socket) {
         t.actor.run(() => {
       const seat = t.userToSeat.get(userId);
 
-      // 不在座位上，但在排队里 → 取消排队
+      // 不在座位上，但在排队里 → 取消排队（顺手退出房间，别继续收快照）
       if (seat == null && t.sitQueue) {
         const idx = t.sitQueue.findIndex((q) => q.userId === userId);
         if (idx !== -1) {
           t.sitQueue.splice(idx, 1);
           t.version += 1;
+          socket.emit('table:snapshot', toTableSnapshot(t, null));
+          socket.leave(`table:${tableId}`);
+          socket.data.tableId = undefined;
+          socket.data.seat = undefined;
           broadcastTable(nsp, t);
           return replyAck(ack, { ok: true, message: '已取消排队' });
         }

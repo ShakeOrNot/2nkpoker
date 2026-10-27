@@ -93,6 +93,8 @@ export class Store {
         log: [],
         /** @type {string|null} */
         notice: '',
+        /** 手牌进行中点了"排队等待下一手"：等本手结束会自动入座 */
+        queued: false,
       },
       /** 我的手牌历史，用于结算后仍显示上一手底牌 */
       lastHoleCards: [],
@@ -108,6 +110,8 @@ export class Store {
     this.deadlineTimer = null;
     this.autoSitWanted = false;
     this.resultTimer = null;
+    /** 重连后重新订阅房间是否正在进行（防止重复 join） */
+    this.rejoining = false;
   }
 
   /* ------------------------------------------------------------------ *
@@ -432,6 +436,12 @@ export class Store {
       onConnect: () => {
         this.patch({ connection: 'online' });
         this.log('已连接牌局服务');
+        // socket.io 重连会换一个新的 socket.id，而服务端的房间成员是按 socket 算的：
+        // 不重新 table:join 的话，页面看着"已连接"却再也收不到任何快照。
+        const tableId = this.state.room.tableId;
+        if (tableId && (this.state.phase === 'waiting' || this.state.phase === 'table')) {
+          void this.rejoinRoom(tableId);
+        }
       },
       onDisconnect: (reason) => {
         this.patch({ connection: 'offline' });
@@ -466,6 +476,30 @@ export class Store {
     this.pendingRequest = null;
   }
 
+  /**
+   * 重连后重新订阅房间，并主动拉一次快照补上断线期间漏掉的广播。
+   * @param {string} tableId
+   */
+  async rejoinRoom(tableId) {
+    if (this.state.offline || this.rejoining) return;
+    if (!this.socket || typeof this.socket.request !== 'function') return;
+    if (this.socket.connected === false) return;
+
+    this.rejoining = true;
+    try {
+      const res = await this.socket.request('table:join', { tableId });
+      if (!res?.ok) return;
+      // 服务端可能已经把座位弄丢了（超过宽限期），ack 里会告诉我们有没有恢复
+      if (res.restored) this.log(`已恢复座位 ${res.seat}`);
+      const state = await this.socket.request('table:request_state', { tableId });
+      if (state?.ok && state.snapshot) this.applySnapshot(state.snapshot);
+    } catch {
+      /* 重连期间的失败不打扰用户：下一次 onConnect 还会再试 */
+    } finally {
+      this.rejoining = false;
+    }
+  }
+
   /* ------------------------------------------------------------------ *
    * 服务端事件 → 状态
    * ------------------------------------------------------------------ */
@@ -498,11 +532,14 @@ export class Store {
     }
 
     const tableId = snapshot.tableId ?? this.state.room.tableId;
+    const nowSeated = snapshot.seats?.some((s) => s.userId === this.state.session?.userId);
     this.state.room = {
       ...this.state.room,
       tableId,
       snapshot,
       lastResult,
+      // 一旦真的坐上座位，"排队中"状态就结束了
+      queued: nowSeated ? false : this.state.room.queued,
       actionRequest: hand?.settled ? null : this.state.room.actionRequest,
     };
     this.state.phase = phase;
@@ -711,6 +748,7 @@ export class Store {
 
       if (!res?.ok) {
       if (res?.queued) {
+        this.patchRoom({ queued: true });
         toast('已加入排队，本手结束后自动入座', 'info');
         return { ok: true, queued: true }; // 告诉 UI 排队成功了
       }
@@ -718,6 +756,7 @@ export class Store {
       this.reportError(`入座失败：${message}`, { log: false });
       return { ok: false, code: res?.code, message };
     }
+    this.patchRoom({ queued: false });
     this.log(`已入座（座位 ${res.seat}），带入 ${buyIn}`);
     upsertRecord({ roomId: tableId, buyIn: Math.floor(buyIn), nickname: this.state.session?.nickname ?? '' });
     return { ok: true, seat: res.seat };
@@ -730,6 +769,7 @@ export class Store {
   async stand() {
     const tableId = this.state.room.tableId;
     if (!tableId) return { ok: false, code: 'TABLE_NOT_FOUND' };
+    const wasSeated = this.mySeat() != null;
     const conn = await this.ensureSocket();
     if (!conn.ok) return conn;
 
@@ -747,8 +787,8 @@ export class Store {
       this.reportError(`离座失败：${message}`, { log: false });
       return { ok: false, code: res?.code, message };
     }
-    this.log('已离座');
-    this.patchRoom({ actionRequest: null });
+    this.log(wasSeated ? '已离座' : '已取消排队');
+    this.patchRoom({ actionRequest: null, queued: false });
     return { ok: true };
   }
 
@@ -854,7 +894,7 @@ export class Store {
     await this.socket.request('table:leave', { tableId: this.state.room.tableId });
   }
   // 清空前端本地状态
-  this.patchRoom({ tableId: '', snapshot: null, actionRequest: null, lastResult: null, log: [], notice: '' });
+  this.patchRoom({ tableId: '', snapshot: null, actionRequest: null, lastResult: null, log: [], notice: '', queued: false });
   }
 }
 

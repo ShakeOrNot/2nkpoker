@@ -151,3 +151,50 @@ describe('cleanupAfterHand', () => {
     for (const s of t.handState.seats) expect(s.holeCards).toHaveLength(2);
   });
 });
+
+describe('cleanupAfterHand - 排队补位', () => {
+  it('本手结束后把排队的人补上座位，并返回补位名单', () => {
+    const t = getOrCreateTable('q1');
+    seedTable(t, [
+      { seat: 0, userId: 'a', nickname: 'A', chips: 1000, ready: true },
+      { seat: 1, userId: 'b', nickname: 'B', chips: 1000, ready: true },
+    ]);
+    maybeStartHand(t);
+    t.sitQueue = [{ userId: 'c', nickname: 'C', buyIn: 500, preferredSeat: 3 }];
+    t.handState.settled = true;
+
+    const seated = cleanupAfterHand(t);
+
+    expect(seated).toEqual([{ userId: 'c', seat: 3 }]);
+    expect(t.seats.get(3).userId).toBe('c');
+    expect(t.seats.get(3).chips).toBe(500);
+    expect(t.seats.get(3).ready).toBe(false);
+    expect(t.userToSeat.get('c')).toBe(3);
+    expect(t.sitQueue).toHaveLength(0);
+    // 补位的人还没准备，所以下一手不会自动开（等他点准备）
+    expect(maybeStartHand(t)).toBe(false);
+  });
+
+  it('没有空座位时不补位，队列照样清空', () => {
+    const t = getOrCreateTable('q2');
+    t.maxSeats = 2;
+    seedTable(t, [
+      { seat: 0, userId: 'a', nickname: 'A', chips: 1000, ready: true },
+      { seat: 1, userId: 'b', nickname: 'B', chips: 1000, ready: true },
+    ]);
+    maybeStartHand(t);
+    t.sitQueue = [{ userId: 'c', nickname: 'C', buyIn: 500, preferredSeat: -1 }];
+    t.handState.settled = true;
+
+    const seated = cleanupAfterHand(t);
+
+    expect(seated).toEqual([]);
+    expect(t.seats.size).toBe(2);
+    expect(t.sitQueue).toHaveLength(0);
+  });
+
+  it('没有结算的手牌时什么都不做', () => {
+    const t = getOrCreateTable('q3');
+    expect(cleanupAfterHand(t)).toEqual([]);
+  });
+});

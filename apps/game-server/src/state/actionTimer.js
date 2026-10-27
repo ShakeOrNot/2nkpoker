@@ -103,7 +103,25 @@ export function broadcastResult(nsp, t, handId) {
     result: t.handState.result,
     board: t.handState.board,
   });
-  cleanupAfterHand(t);
+  const seated = cleanupAfterHand(t);
+
+  // 排队补位的人：把座位写回他们的 socket。
+  // 不写的话他们拿不到自己的手牌、也点不了准备 —— 整桌会卡在一个永远不 ready 的幽灵座位上。
+  for (const { userId, seat } of seated) {
+    const sid = findSocketByUserId(nsp, t.tableId, userId);
+    const sock = sid ? nsp.sockets.get(sid) : null;
+    if (!sock) {
+      // 人已经不在了（关页面/断线）：不留幽灵座位，让他下次重新排队
+      t.seats.delete(seat);
+      t.userToSeat.delete(userId);
+      t.version += 1;
+      continue;
+    }
+    sock.data.tableId = t.tableId;
+    sock.data.seat = seat;
+    sock.join(`table:${t.tableId}`);
+  }
+
   broadcastTable(nsp, t);
   if (maybeStartHand(t)) {
     broadcastTable(nsp, t);

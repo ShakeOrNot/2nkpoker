@@ -222,6 +222,13 @@ export class WaitingView extends View {
     }
   }
 
+  /** 取消"排队等待下一手"（服务端会把队列里的自己摘掉） */
+  async cancelQueue() {
+    const res = await this.store.stand();
+    if (!res.ok) toast(res.message || '取消排队失败', 'error');
+    else toast('已取消排队', 'info');
+  }
+
   /**
    * @param {any} state
    */
@@ -246,6 +253,7 @@ export class WaitingView extends View {
     const occupied = seats.filter((s) => s.userId).length;
     const maxSeats = snap?.maxSeats ?? 6;
     const live = handRunning(snap?.hand);
+    const queued = Boolean(state.room.queued);
     const mySeat = this.store.mySeat();
     const me = seats.find((s) => s.seat === mySeat);
     const readyCount = seats.filter((s) => s.ready).length;
@@ -254,7 +262,25 @@ export class WaitingView extends View {
 
     /* 状态提示 */
     this.notice.replaceChildren();
-        if (live) {
+    if (queued && !me) {
+      this.notice.className = 'notice notice-live visible';
+      this.notice.appendChild(
+        tag(
+          'div',
+          '',
+          live
+            ? '你已排队，本手结束后自动入座（现在可以先观战）'
+            : '你已排队，等有空位后自动入座',
+        ),
+      );
+      this.notice.appendChild(
+        button({
+          label: '取消排队',
+          className: 'btn-ghost btn-sm',
+          onClick: () => this.cancelQueue(),
+        }),
+      );
+    } else if (live) {
       this.notice.className = 'notice notice-live visible';
       if (me) {
         // 如果自己有座位，说明本来就在局里（或者是点返回大厅还没离座的）
@@ -323,7 +349,7 @@ export class WaitingView extends View {
     }
 
     /* 按钮状态 */
-    const canSit = !me && occupied < maxSeats;
+    const canSit = !me && !queued && occupied < maxSeats;
     const canReady = Boolean(me) && !live;
     const canStand = Boolean(me) && !live;
 
@@ -333,7 +359,9 @@ export class WaitingView extends View {
     setText(this.readyBtn, me?.ready ? '取消准备' : '准备开始');
     this.buyRow.classList.toggle('hidden', Boolean(me));
 
-    if (live && occupied < maxSeats) {
+    if (queued) {
+      setText(this.sitBtn, '排队中…');
+    } else if (live && occupied < maxSeats) {
       setText(this.sitBtn, '排队等待下一手');
     } else if (occupied >= maxSeats) {
       setText(this.sitBtn, '座位已满');
