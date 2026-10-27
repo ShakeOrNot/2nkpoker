@@ -10,7 +10,7 @@ export function toTableSnapshot(t, forSeat = null) {
   for (let i = 0; i < t.maxSeats; i++) {
     const s = t.seats.get(i);
     if (!s) {
-      seats.push({ seat: i, userId: null, nickname: '', chips: 0, ready: false, connected: false });
+      seats.push({ seat: i, userId: null, nickname: '', chips: 0, ready: false, connected: false, leaving: false });
       continue;
     }
     seats.push({
@@ -20,6 +20,8 @@ export function toTableSnapshot(t, forSeat = null) {
       chips: s.chips,
       ready: s.ready,
       connected: s.connected,
+      // 手牌进行中点了「离桌」：本手结束后自动清座
+      leaving: Boolean(s.leaving),
     });
   }
 

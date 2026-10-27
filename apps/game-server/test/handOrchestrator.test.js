@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getOrCreateTable } from '../src/state/tableManager.js';
-import { maybeStartHand, playAction, cleanupAfterHand } from '../src/state/handOrchestrator.js';
+import { maybeStartHand, playAction, cleanupAfterHand, requestLeave } from '../src/state/handOrchestrator.js';
 
 function seedTable(t, seats) {
   for (const s of seats) {
@@ -196,5 +196,74 @@ describe('cleanupAfterHand - 排队补位', () => {
   it('没有结算的手牌时什么都不做', () => {
     const t = getOrCreateTable('q3');
     expect(cleanupAfterHand(t)).toEqual([]);
+  });
+});
+
+describe('requestLeave - 手动离桌', () => {
+  it('不在手牌中：立即删座', () => {
+    const t = getOrCreateTable('lv1');
+    seedTable(t, [
+      { seat: 0, userId: 'a', nickname: 'A', chips: 1000, ready: false },
+      { seat: 1, userId: 'b', nickname: 'B', chips: 1000, ready: false },
+    ]);
+    const r = requestLeave(t, 0);
+    expect(r.pending).toBe(false);
+    expect(t.seats.has(0)).toBe(false);
+    expect(t.userToSeat.has('a')).toBe(false);
+  });
+
+  it('手牌进行中：标记 leaving，座位保留到本手结束再清掉', () => {
+    const t = getOrCreateTable('lv2');
+    seedTable(t, [
+      { seat: 0, userId: 'a', nickname: 'A', chips: 1000, ready: true },
+      { seat: 1, userId: 'b', nickname: 'B', chips: 1000, ready: true },
+      { seat: 2, userId: 'c', nickname: 'C', chips: 1000, ready: true },
+    ]);
+    maybeStartHand(t);
+
+    const r = requestLeave(t, 0);
+    expect(r.pending).toBe(true);
+    expect(t.seats.get(0).leaving).toBe(true);
+    expect(t.seats.get(0).ready).toBe(false);
+    expect(t.handState).not.toBeNull(); // 座位还在，等这手打完
+
+    t.handState.settled = true;
+    cleanupAfterHand(t);
+    expect(t.seats.has(0)).toBe(false);
+    expect(t.userToSeat.has('a')).toBe(false);
+  });
+
+  it('正好轮到他：当场弃牌，不把整桌卡住', () => {
+    const t = getOrCreateTable('lv3');
+    seedTable(t, [
+      { seat: 0, userId: 'a', nickname: 'A', chips: 1000, ready: true },
+      { seat: 1, userId: 'b', nickname: 'B', chips: 1000, ready: true },
+      { seat: 2, userId: 'c', nickname: 'C', chips: 1000, ready: true },
+    ]);
+    maybeStartHand(t);
+
+    const turn = t.handState.currentTurnSeat;
+    const r = requestLeave(t, turn);
+
+    expect(r.pending).toBe(true);
+    expect(r.folded).toBe(true);
+    expect(t.handState.seats.find((s) => s.seat === turn).folded).toBe(true);
+  });
+
+  it('两人桌上离桌即结算', () => {
+    const t = getOrCreateTable('lv4');
+    seedTable(t, [
+      { seat: 0, userId: 'a', nickname: 'A', chips: 1000, ready: true },
+      { seat: 1, userId: 'b', nickname: 'B', chips: 1000, ready: true },
+    ]);
+    maybeStartHand(t);
+
+    const turn = t.handState.currentTurnSeat;
+    const r = requestLeave(t, turn);
+
+    expect(r.pending).toBe(true);
+    expect(r.folded).toBe(true);
+    expect(r.settled).toBe(true);
+    expect(t.handState.settled).toBe(true);
   });
 });

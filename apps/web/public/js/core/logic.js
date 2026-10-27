@@ -23,6 +23,45 @@ const POSITION_TABLE = {
   6: ['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'],
 };
 
+/**
+ * 按**桌子快照**算每个座位的位次名（不需要有进行中的手牌，等候室也能用）
+ * 按钮位可能停在空座位上（还没开过手）→ 顺延到其后第一个有人坐的座位
+ * @param {any} snapshot TableSnapshot
+ * @returns {Map<number, string>} seat -> BTN/SB/BB/UTG/HJ/CO
+ */
+export function tablePositions(snapshot) {
+  /** @type {Map<number, string>} */
+  const map = new Map();
+  const seats = (snapshot?.seats ?? [])
+    .filter((s) => s.userId)
+    .map((s) => s.seat)
+    .sort((a, b) => a - b);
+  const n = seats.length;
+  const table = POSITION_TABLE[n];
+  if (!table) return map;
+
+  let btnIdx = seats.indexOf(snapshot.buttonSeat);
+  if (btnIdx < 0) {
+    const nextSeat = seats.find((s) => s > snapshot.buttonSeat);
+    btnIdx = seats.indexOf(nextSeat ?? seats[0]);
+  }
+  seats.forEach((seat, i) => {
+    map.set(seat, table[(((i - btnIdx) % n) + n) % n]);
+  });
+  return map;
+}
+
+/**
+ * 某个座位的位次名（空座位返回空串）
+ * @param {any} snapshot
+ * @param {number|null} seat
+ * @returns {string}
+ */
+export function tablePositionOf(snapshot, seat) {
+  if (seat == null) return '';
+  return tablePositions(snapshot).get(seat) ?? '';
+}
+
 /** 快捷按钮上的金额简写（与 core/format.js 的 chips() 同规则，此处自持以便纯逻辑单测） */
 function shortChips(n) {
   const v = Number(n);

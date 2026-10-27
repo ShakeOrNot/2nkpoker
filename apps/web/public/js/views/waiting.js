@@ -7,7 +7,7 @@ import { View, button, node, setDisabled, setText, tag } from './base.js';
 import { toast, copyText } from '../core/dom.js';
 import { chips, stakeText } from '../core/format.js';
 import { MAX_BUY_IN, MIN_BUY_IN } from '../core/constants.js';
-import { handRunning, shareUrl, isValidRoomId } from '../core/logic.js';
+import { handRunning, shareUrl, isValidRoomId, tablePositions } from '../core/logic.js';
 
 export class WaitingView extends View {
   /**
@@ -229,18 +229,14 @@ export class WaitingView extends View {
   }
 
   /**
-   * 返回大厅：
-   * - 手牌进行中 → 保持订阅挂机（前端会自动过牌/弃牌）
-   * - 否则先离座、再退出房间，避免同时订阅两张桌子
+   * 返回大厅 = 主动离桌：自动离座并退出房间。
+   * 手牌进行中服务端会标记"本手结束后离桌"，这里先回大厅等结算，
+   * 断线之类的被动回大厅不会走到这里（座位会被保留，重新进房即可恢复）。
    */
   async backToLobby() {
-    if (handRunning(this.store.state.room.snapshot?.hand)) {
-      this.store.patch({ phase: 'lobby' });
-      toast('牌局进行中，已在大厅挂机，轮到你会自动操作', 'info');
-      return;
-    }
-    if (this.store.mySeat() != null) await this.store.stand();
-    await this.store.leaveRoom();
+    const res = await this.store.leaveTable();
+    if (!res.ok) toast(res.message || '离桌失败', 'error');
+    else if (res.pending) toast('本手结束后自动离桌，可先在大厅等待', 'info');
   }
 
   /**
@@ -329,6 +325,7 @@ export class WaitingView extends View {
     }
 
     /* 座位 */
+    const positions = tablePositions(snap);
     this.seatGrid.replaceChildren();
     for (let i = 0; i < maxSeats; i++) {
       const seat = seats.find((s) => s.seat === i) ?? { seat: i, userId: null };
@@ -338,23 +335,28 @@ export class WaitingView extends View {
       if (seat.ready) cell.classList.add('seat-ready');
       if (seat.userId && !seat.connected) cell.classList.add('seat-offline');
 
-      cell.appendChild(tag('div', 'seat-no', `座位 ${i + 1}`));
+      // 座位名用位次（BTN/SB/BB/UTG/HJ/CO）；空座位没有位次，退回座位号
+      const pos = positions.get(i) ?? '';
+      cell.appendChild(tag('div', 'seat-no', seat.userId ? pos || `座位 ${i + 1}` : `座位 ${i + 1}`));
       cell.appendChild(tag('div', 'seat-name', seat.userId ? seat.nickname || '玩家' : '空位'));
       cell.appendChild(tag('div', 'seat-chips', seat.userId ? `${chips(seat.chips)} 筹码` : '—'));
       if (seat.userId) {
         const badges = node('seat-badges');
         if (seat.ready) badges.appendChild(tag('span', 'badge badge-ok', '已准备'));
+        if (seat.leaving) badges.appendChild(tag('span', 'badge badge-warn', '离桌中'));
         if (!seat.connected) badges.appendChild(tag('span', 'badge badge-bad', '断线'));
         if (seat.seat === mySeat) badges.appendChild(tag('span', 'badge badge-host', '我'));
         cell.appendChild(badges);
-      } else if (!live) {
+      } else if (!live && !queued) {
+        // 已经坐着的人也能直接换到空位（不用先离座）
         cell.appendChild(
           button({
-            label: '坐这里',
+            label: me ? '换到这里' : '坐这里',
             className: 'btn-ghost btn-xs',
             onClick: async () => {
               const res = await this.store.sit(i, this.buyInValue());
-              if (!res.ok) toast(res.message || '入座失败', 'error');
+              if (!res.ok) toast(res.message || (me ? '换座失败' : '入座失败'), 'error');
+              else if (res.moved) toast(`已换到座位 ${Number(res.seat) + 1}`, 'success');
             },
           }),
         );

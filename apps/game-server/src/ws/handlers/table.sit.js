@@ -7,6 +7,7 @@ import {
   findUserTable,
 } from '../../state/tableManager.js';
 import { toTableSnapshot } from '../../state/tableSnapshot.js';
+import { requestLeave } from '../../state/handOrchestrator.js';
 
 const MIN_BUY_IN = 100;
 const MAX_BUY_IN = 100000;
@@ -20,9 +21,6 @@ export function registerTableSit(nsp, socket) {
     const parsed = parseOrError(TableSitSchema, payload);
     if (!parsed.ok) return replyAck(ack, { ok: false, code: parsed.code, message: parsed.message });
     const { tableId, seat: preferredSeat, buyIn } = parsed.data;
-    if (buyIn < MIN_BUY_IN || buyIn > MAX_BUY_IN) {
-      return replyAck(ack, { ok: false, code: 'INVALID_BUY_IN', message: `buyIn must be ${MIN_BUY_IN}~${MAX_BUY_IN}` });
-    }
 
     const t = getOrCreateTable(tableId);
     const userId = socket.data.userId;
@@ -39,9 +37,44 @@ export function registerTableSit(nsp, socket) {
         });
       }
 
-      if (t.userToSeat.has(userId)) {
-        return replyAck(ack, { ok: false, code: 'ALREADY_SEATED', message: 'already seated' });
+      const currentSeat = t.userToSeat.get(userId);
+
+      // 已经在座：允许直接换座（不用先离座），但手牌进行中不行
+      if (currentSeat != null) {
+        if (t.handState && !t.handState.settled) {
+          return replyAck(ack, { ok: false, code: 'HAND_IN_PROGRESS', message: '牌局进行中，本手结束后才能换座' });
+        }
+        const target = preferredSeat >= 0 ? preferredSeat : currentSeat;
+        if (target === currentSeat) {
+          return replyAck(ack, { ok: true, seat: currentSeat, unchanged: true });
+        }
+        if (target < 0 || target >= t.maxSeats) {
+          return replyAck(ack, { ok: false, code: 'SEAT_INVALID', message: '座位号非法' });
+        }
+        if (t.seats.has(target)) {
+          return replyAck(ack, { ok: false, code: 'SEAT_TAKEN', message: '该座位已被占用' });
+        }
+
+        const seatState = t.seats.get(currentSeat);
+        t.seats.delete(currentSeat);
+        seatState.seat = target;
+        seatState.ready = false; // 换座后要重新准备
+        delete seatState.leaving;
+        t.seats.set(target, seatState);
+        t.userToSeat.set(userId, target);
+        t.version += 1;
+
+        socket.data.tableId = tableId;
+        socket.data.seat = target;
+        broadcastTable(nsp, t);
+        return replyAck(ack, { ok: true, seat: target, moved: true });
       }
+
+      // 新入座才校验买入（换座沿用原筹码，不重新买入）
+      if (buyIn < MIN_BUY_IN || buyIn > MAX_BUY_IN) {
+        return replyAck(ack, { ok: false, code: 'INVALID_BUY_IN', message: `buyIn must be ${MIN_BUY_IN}~${MAX_BUY_IN}` });
+      }
+
       const free = findFreeSeat(t, preferredSeat);
       if (free == null) {
         return replyAck(ack, { ok: false, code: 'TABLE_FULL', message: 'no free seat' });
@@ -106,7 +139,7 @@ export function registerTableSit(nsp, socket) {
     if (!t) return replyAck(ack, { ok: false, code: 'TABLE_NOT_FOUND' });
 
     const userId = socket.data.userId;
-        t.actor.run(() => {
+    t.actor.run(async () => {
       const seat = t.userToSeat.get(userId);
 
       // 不在座位上，但在排队里 → 取消排队（顺手退出房间，别继续收快照）
@@ -125,21 +158,37 @@ export function registerTableSit(nsp, socket) {
       }
 
       if (seat == null) return replyAck(ack, { ok: false, code: 'NOT_SEATED' });
-      if (t.handState && !t.handState.settled) {
-        return replyAck(ack, { ok: false, code: 'HAND_IN_PROGRESS' });
-      }
 
-      t.seats.delete(seat);
-      t.userToSeat.delete(userId);
-      t.version += 1;
+      // 离桌 = 离座（+ 由客户端 table:leave 退订房间）。
+      // 手牌进行中不立刻删座：先标记 leaving，本手结束由 cleanupAfterHand 清掉。
+      const result = requestLeave(t, seat);
 
       // 只离座，**不退出房间**：留在房间里当旁观者，随时可以重新入座。
       // （真正退订房间是 table:leave；这样"等候室离座"不会把人赶出房间）
       socket.data.seat = undefined;
       socket.emit('table:snapshot', toTableSnapshot(t, null));
-
-      // 再广播给房间里剩下的其他人
       broadcastTable(nsp, t);
+
+      if (result.pending) {
+        if (result.folded) {
+          // 正好轮到他：当场弃牌推进牌局，别让别人等到 30s 超时
+          nsp.to(`table:${tableId}`).emit('game:action_applied', {
+            seat,
+            action: { type: 'fold' },
+            handId: result.handId,
+            leave: true,
+          });
+          if (result.settled) {
+            const { broadcastResult } = await import('../../state/actionTimer.js');
+            broadcastResult(nsp, t, result.handId);
+          } else {
+            const { broadcastActionRequest } = await import('../../state/actionTimer.js');
+            broadcastActionRequest(nsp, t);
+          }
+        }
+        return replyAck(ack, { ok: true, pending: true, message: '本手结束后离桌' });
+      }
+
       removeTableIfEmpty(tableId);
       replyAck(ack, { ok: true });
     });

@@ -312,6 +312,17 @@ if (!failed) {
     };
     appStore.onChange();
 
+    // 座位名用位次：2 人桌 = BTN / BB；空座位上还有「换到这里」
+    const cells = waiting.seatGrid.children;
+    const seatLabel = (i) => cells[i]?.children?.[0]?.textContent ?? '';
+    if (seatLabel(0) !== 'BTN' || seatLabel(1) !== 'BB') {
+      throw new Error(`座位名不是位次：${JSON.stringify([seatLabel(0), seatLabel(1)])}`);
+    }
+    const swapBtn = cells[2]?.children?.find?.((n) => n.tagName === 'BUTTON');
+    if (!swapBtn || swapBtn.textContent !== '换到这里') {
+      throw new Error(`已入座时空位没有「换到这里」按钮：${swapBtn?.textContent ?? '无'}`);
+    }
+
     await waiting.doStand();
 
     if (!calls.some((c) => c.event === 'table:stand')) throw new Error('离座没有发 table:stand');

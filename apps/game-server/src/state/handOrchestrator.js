@@ -88,6 +88,45 @@ export function playAction(t, seat, action, expectedVersion) {
 }
 
 /**
+ * 主动离桌：
+ * - 不在手牌中 → 直接删座，立刻生效
+ * - 手牌进行中 → 标记 leaving + ready=false，等本手结束由 cleanupAfterHand 清掉座位；
+ *   如果正好轮到他，当场弃牌，别把整桌卡住
+ *
+ * @param {any} t
+ * @param {number} seat
+ * @returns {{ pending: boolean, folded: boolean, settled: boolean, handId: string|null }}
+ */
+export function requestLeave(t, seat) {
+  const s = t.seats.get(seat);
+  if (!s) return { pending: false, folded: false, settled: false, handId: null };
+
+  if (!t.handState || t.handState.settled) {
+    t.seats.delete(seat);
+    t.userToSeat.delete(s.userId);
+    t.version += 1;
+    return { pending: false, folded: false, settled: false, handId: null };
+  }
+
+  s.leaving = true;
+  s.ready = false;
+  t.version += 1;
+
+  const hs = t.handState.seats.find((x) => x.seat === seat);
+  let folded = false;
+  if (t.handState.currentTurnSeat === seat && hs && !hs.folded && !hs.allIn) {
+    folded = playAction(t, seat, { type: 'fold' }, t.handState.version).ok;
+  }
+
+  return {
+    pending: true,
+    folded,
+    settled: Boolean(t.handState.settled),
+    handId: t.handState.handId,
+  };
+}
+
+/**
  * 结算后清理桌子：把 settle 结果同步回座位、清空 handState、把排队的人拉上座位
  * @param {any} t
  * @returns {Array<{ userId: string, seat: number }>} 本手结束后从排队补位上桌的人
@@ -101,9 +140,9 @@ export function cleanupAfterHand(t) {
     if (s) s.chips = hs.chips;
   }
 
-  // 2. 输光筹码的人自动离座
+  // 2. 输光筹码的人自动离座；本手结束后要离桌的人也一并清掉
   for (const [seat, s] of [...t.seats.entries()]) {
-    if (s.chips <= 0) {
+    if (s.chips <= 0 || s.leaving) {
       t.seats.delete(seat);
       t.userToSeat.delete(s.userId);
     }

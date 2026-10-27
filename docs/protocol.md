@@ -88,8 +88,12 @@ type Action =
 
 - 所有事件都有 ack：成功 `{ ok: true, ... }`，失败 `{ ok: false, code, message? }`
 - `table:join` 只订阅房间，**不占座**；占座是 `table:sit`
+- `table:sit` 对**已经在座的人**就是换座：不用先离座，筹码不变、`ready` 重置
+  - 手牌进行中不允许换座（`HAND_IN_PROGRESS`）；目标座位有人返回 `SEAT_TAKEN`
 - `table:stand` **只离座、不退出房间**：人还留在房间里当旁观者（仍收快照），可以立刻重新 `table:sit`
-  - 真正退订房间是 `table:leave`（前端"返回大厅"走这条）
+  - 真正退订房间是 `table:leave`（前端"返回大厅"= 离桌：先 stand 再 leave）
+  - 手牌进行中调用不会立刻删座：服务端把座位标成 `leaving`（本手结束后清掉），
+    轮到你的话当场弃牌，ack 返回 `{ ok: true, pending: true }`
   - `table:stand` 也可以取消排队
 - 断线后 30 秒内（`RECONNECT_GRACE_MS`）用同一 JWT 重新 `table:join` 会恢复原座位
 - 入座时如果这手牌还没结束，服务端返回 `{ ok: false, code: 'HAND_IN_PROGRESS', queued: true, seat: null }` 并把你放进等待队列：
@@ -133,6 +137,7 @@ type TableSnapshot = {
     chips: number;
     ready: boolean;
     connected: boolean;
+    leaving: boolean;     // 手牌中点了离桌：本手结束后自动清座
   }[];
   hand: HandSnapshot | null;   // 没有进行中的手牌时为 null
 };
@@ -183,10 +188,12 @@ type HandResult = {
 | `INVALID_PAYLOAD` | zod 校验失败（字段缺失/越界） | 请求格式不对，请刷新页面重试 |
 | `TABLE_NOT_FOUND` | 牌局不存在 | 牌局不存在，可能已被解散 |
 | `TABLE_FULL` | 没有空座位 | 牌局已坐满，换个牌局试试 |
-| `ALREADY_SEATED` | 已经坐在这张桌子 | 你已经在这张牌局里了 |
+| `ALREADY_SEATED` | 已经坐在这张桌子（普通入座路径才会出现；已入座时 `table:sit` 被当作换座） | 你已经在这张牌局里了 |
+| `SEAT_TAKEN` | 换座的目标座位已经有人 | 该座位已被占用 |
+| `SEAT_INVALID` | 换座的目标座位号越界 | 座位号非法 |
 | `ALREADY_IN_OTHER_TABLE` | 已坐在别的桌子 | 你已经在另一张桌子上了 |
 | `NOT_SEATED` | 没坐下就发动作/准备 | 你还没有入座 |
-| `HAND_IN_PROGRESS` | 手牌进行中不能入座/离座/准备；`queued: true` 表示已排队 | 牌局进行中，暂时不能入座或离座 |
+| `HAND_IN_PROGRESS` | 手牌进行中不能入座/换座/准备；`queued: true` 表示已排队 | 牌局进行中，暂时不能入座或离座 |
 | `INVALID_BUY_IN` | 带入不在 100~100000 | 带入筹码必须在 100~100000 之间 |
 | `HAND_NOT_ACTIVE` | 没有进行中的手牌 | 当前没有进行中的牌局 |
 | `STATE_OUTDATED` | `expectedVersion` 与服务端不一致 | 牌局状态已更新，请重试 |
@@ -197,7 +204,7 @@ type HandResult = {
 
 说明：
 
-- `RATE_LIMITED`、`SEAT_TAKEN`、`INTERNAL_ERROR` 目前**服务端不下发**（前端文案保留，方便将来限流）
+- `RATE_LIMITED`、`INTERNAL_ERROR` 目前**服务端不下发**（前端文案保留，方便将来限流）
 - 引擎的 `ActionError` 直接当作 `code` 透传，message 可能为空
 
 ## 6. 规则要点

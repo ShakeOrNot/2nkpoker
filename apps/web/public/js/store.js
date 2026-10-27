@@ -95,6 +95,8 @@ export class Store {
         notice: '',
         /** 手牌进行中点了"排队等待下一手"：等本手结束会自动入座 */
         queued: false,
+        /** 手牌进行中点了"离桌"：本手结束、座位清掉后自动退房回大厅 */
+        pendingLeave: false,
       },
       /** 我的手牌历史，用于结算后仍显示上一手底牌 */
       lastHoleCards: [],
@@ -533,6 +535,7 @@ export class Store {
 
     const tableId = snapshot.tableId ?? this.state.room.tableId;
     const nowSeated = snapshot.seats?.some((s) => s.userId === this.state.session?.userId);
+    const wasPendingLeave = Boolean(this.state.room.pendingLeave);
     this.state.room = {
       ...this.state.room,
       tableId,
@@ -540,10 +543,17 @@ export class Store {
       lastResult,
       // 一旦真的坐上座位，"排队中"状态就结束了
       queued: nowSeated ? false : this.state.room.queued,
+      // 离桌请求：座位清掉之前一直挂着
+      pendingLeave: nowSeated ? wasPendingLeave : false,
       actionRequest: hand?.settled ? null : this.state.room.actionRequest,
     };
     this.state.phase = phase;
     this.onChange();
+
+    // 手牌进行中点的"离桌"已完成（座位没了 + 本手结束）→ 自动退房回大厅
+    if (wasPendingLeave && !nowSeated && !handRunning(snapshot.hand)) {
+      void this.leaveRoom();
+    }
   }
 
   /**
@@ -665,6 +675,17 @@ export class Store {
       return { ok: false, code: 'INVALID_PAYLOAD', message: '房号格式不对（2~32 位字母数字）' };
     }
 
+    // 先进了另一张桌：先把旧房间退订，避免两张桌的快照互相覆盖
+    const previous = this.state.room.tableId;
+    if (previous && previous !== tableId && this.socket && this.state.connection === 'online') {
+      try {
+        await this.socket.request('table:leave', { tableId: previous });
+      } catch {
+        /* 旧房间退订失败不影响进新桌 */
+      }
+      this.patchRoom({ pendingLeave: false, queued: false });
+    }
+
     this.patch({ busy: true });
     this.state.room.tableId = tableId;
     const conn = await this.ensureSocket();
@@ -721,8 +742,16 @@ export class Store {
   async sit(seat, buyIn) {
     const tableId = this.state.room.tableId;
     if (!tableId) return { ok: false, code: 'TABLE_NOT_FOUND' };
-    const check = validateBuyIn(buyIn);
-    if (!check.ok) return { ok: false, code: 'INVALID_BUY_IN', message: errorText('INVALID_BUY_IN') };
+
+    // 已经在座 → 这次是换座：不重新买入，沿用当前筹码（可能已经低于最低买入）
+    const mySeat = this.mySeat();
+    const moving = mySeat != null;
+    const me = moving ? this.state.room.snapshot?.seats?.find((s) => s.seat === mySeat) : null;
+    const stake = moving ? Math.max(1, Number(me?.chips ?? 1)) : buyIn;
+    if (!moving) {
+      const check = validateBuyIn(buyIn);
+      if (!check.ok) return { ok: false, code: 'INVALID_BUY_IN', message: errorText('INVALID_BUY_IN') };
+    }
 
     const conn = await this.ensureSocket();
     if (!conn.ok) {
@@ -738,7 +767,7 @@ export class Store {
       res = await this.socket.request('table:sit', {
         tableId,
         seat: Number.isInteger(seat) ? seat : -1,
-        buyIn: Math.floor(buyIn),
+        buyIn: Math.floor(stake),
       });
     } catch (err) {
       res = { ok: false, code: 'NETWORK', message: String(err?.message ?? err) };
@@ -757,8 +786,13 @@ export class Store {
       return { ok: false, code: res?.code, message };
     }
     this.patchRoom({ queued: false });
-    this.log(`已入座（座位 ${res.seat}），带入 ${buyIn}`);
-    upsertRecord({ roomId: tableId, buyIn: Math.floor(buyIn), nickname: this.state.session?.nickname ?? '' });
+    if (res.moved) {
+      this.log(`已换到座位 ${res.seat}（筹码不变）`);
+      return { ok: true, seat: res.seat, moved: true };
+    }
+    if (res.unchanged) return { ok: true, seat: res.seat };
+    this.log(`已入座（座位 ${res.seat}），带入 ${stake}`);
+    upsertRecord({ roomId: tableId, buyIn: Math.floor(stake), nickname: this.state.session?.nickname ?? '' });
     return { ok: true, seat: res.seat };
   }
 
@@ -789,8 +823,40 @@ export class Store {
       this.reportError(`离座失败：${message}`, { log: false });
       return { ok: false, code: res?.code, message };
     }
+    // 手牌进行中：服务端只标记"本手结束后离桌"
+    if (res.pending) {
+      this.patchRoom({ pendingLeave: true, actionRequest: null, queued: false });
+      this.log('本手结束后自动离桌');
+      return { ok: true, pending: true };
+    }
     this.log(wasSeated ? '已离座' : '已取消排队');
     this.patchRoom({ actionRequest: null, queued: false });
+    return { ok: true };
+  }
+
+  /**
+   * 主动离桌：自动离座 + 退出房间（"返回大厅"按钮走这里）。
+   * 手牌进行中服务端只会标记"本手结束后离桌"，此时先回大厅等结算，
+   * 结算后座位消失时由 applySnapshot 自动退房。
+   * @returns {Promise<{ ok: boolean, code?: string, message?: string, pending?: boolean }>}
+   */
+  async leaveTable() {
+    if (!this.state.room.tableId) return { ok: true };
+    const inHand = handRunning(this.state.room.snapshot?.hand);
+
+    if (this.mySeat() != null) {
+      const res = await this.stand();
+      if (!res.ok) return res;
+      if (res.pending || inHand) {
+        // 保持订阅挂机：轮到你会自动过牌/弃牌，结算后再退房
+        this.patch({ phase: 'lobby' });
+        return { ok: true, pending: true };
+      }
+    } else if (this.state.room.queued) {
+      await this.stand(); // 只是取消排队
+    }
+
+    await this.leaveRoom();
     return { ok: true };
   }
 
@@ -901,7 +967,7 @@ export class Store {
     await this.socket.request('table:leave', { tableId: this.state.room.tableId });
   }
   // 清空前端本地状态
-  this.patchRoom({ tableId: '', snapshot: null, actionRequest: null, lastResult: null, log: [], notice: '', queued: false });
+  this.patchRoom({ tableId: '', snapshot: null, actionRequest: null, lastResult: null, log: [], notice: '', queued: false, pendingLeave: false });
   // 房间都没了还停在 waiting/table 只会渲染出一个空壳界面（房号 ----、按钮全灰）
   if (this.state.phase === 'waiting' || this.state.phase === 'table') {
     this.patch({ phase: 'lobby' });

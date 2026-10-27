@@ -11,11 +11,11 @@ import { toast } from '../core/dom.js';
 import { chips, cardText } from '../core/format.js';
 import { MAX_BUY_IN, MIN_BUY_IN, RESULT_HOLD_MS } from '../core/constants.js';
 import {
-  handRunning,
   bestCategory,
   settlement,
   chipDelta,
   positionOf,
+  tablePositionOf,
   maxBetTarget,
   shareUrl,
   isValidRoomId,
@@ -45,17 +45,11 @@ export class TableView extends View {
       label: '返回大厅',
       className: 'btn-ghost btn-sm',
       onClick: () => {
-        const running = handRunning(this.store.state.room.snapshot?.hand);
-        if (running) {
-          // 局中挂机：保持订阅，前端会自动过牌/弃牌
-          this.store.patch({ phase: 'lobby' });
-          toast('牌局进行中，已在大厅挂机，轮到你会自动操作', 'info');
-          return;
-        }
-        // 局外正常退出：先离座（如果还坐着），再退出房间，避免同时订阅两张桌子
+        // 主动离桌 = 自动离座 + 退出房间（手牌进行中则本手结束后自动离桌）
         void (async () => {
-          if (this.store.mySeat() != null) await this.store.stand();
-          await this.store.leaveRoom();
+          const res = await this.store.leaveTable();
+          if (!res.ok) toast(res.message || '离桌失败', 'error');
+          else if (res.pending) toast('本手结束后自动离桌，可先在大厅等待', 'info');
         })();
       },
     });
@@ -263,7 +257,7 @@ export class TableView extends View {
         isMe: seat === mySeat,
         isButton: hand?.buttonSeat === seat || (!hand && snap?.buttonSeat === seat),
         isWinner: Boolean(hand?.result && (hand.result.payouts?.[seat] ?? 0) > 0),
-        position: hand ? positionOf(hand, seat) : '',
+        position: hand ? positionOf(hand, seat) : tablePositionOf(snap, seat),
         delta: delta.get(seat) ?? 0,
         settled: Boolean(hand?.settled),
       });
@@ -288,7 +282,8 @@ export class TableView extends View {
     }
 
     const category = holeCards.length ? bestCategory(holeCards, hand?.board ?? []) : null;
-    setText(this.myNameEl, me ? `${me.nickname}${positionOf(hand, mySeat) ? ` · ${positionOf(hand, mySeat)}` : ''}` : '未入座');
+    const myPos = positionOf(hand, mySeat) || tablePositionOf(snap, mySeat);
+    setText(this.myNameEl, me ? `${me.nickname}${myPos ? ` · ${myPos}` : ''}` : '未入座');
     setText(this.myChipsEl, myHandSeat ? `筹码 ${chips(myHandSeat.chips)}` : me ? `筹码 ${chips(me.chips)}` : '');
     setText(
       this.myHandEl,
@@ -331,10 +326,15 @@ export class TableView extends View {
     el.appendChild(node('seat-tags'));
     el.appendChild(node('seat-delta'));
     el.addEventListener('click', () => {
+      const snap = this.store.state.room.snapshot;
+      const hand = snap?.hand;
+      const running = Boolean(hand && !hand.settled);
+      const taken = Boolean(snap?.seats?.find((s) => s.seat === seat)?.userId);
       const mySeat = this.store.mySeat();
-      if (mySeat == null) {
-        void this.sitAt(seat);
-      }
+      if (taken || mySeat === seat) return;
+      // 已入座的人：牌局进行中不能换座；旁观者点空位 = 排队/入座
+      if (running && mySeat != null) return;
+      void this.sitAt(seat);
     });
     this.seatNodes.set(seat, el);
     return el;
@@ -346,8 +346,10 @@ export class TableView extends View {
   async sitAt(seat) {
     const snap = this.store.state.room.snapshot;
     const buyIn = Math.min(MAX_BUY_IN, Math.max(MIN_BUY_IN, Number(snap?.bigBlind ?? 20) * 50));
+    const moving = this.store.mySeat() != null;
     const res = await this.store.sit(seat, buyIn);
-    if (!res.ok) toast(res.message || '该座位入座失败', 'error');
+    if (!res.ok) toast(res.message || (moving ? '换座失败' : '该座位入座失败'), 'error');
+    else if (res.moved) toast(`已换到座位 ${Number(res.seat) + 1}`, 'success');
   }
 
   /**

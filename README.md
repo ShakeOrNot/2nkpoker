@@ -105,6 +105,7 @@ node apps/web/test/run-tests.mjs
 ```bash
 node scripts/play-smoke.js          # 两人真实打完一手
 node scripts/table-smoke.js         # 入座/站起/快照同步
+node scripts/seat-smoke.js          # 换座 + 手牌中离桌（本手结束后生效）
 node scripts/sparse-seat-smoke.js   # 座位号不连续（0 和 3）也能开局
 node scripts/queue-smoke.js         # 手牌中排队 → 观战 → 自动入座 → 参局
 node scripts/timeout-smoke.js       # 超时自动过牌/弃牌
