@@ -94,6 +94,23 @@ describe('validateAction - 合法路径', () => {
     expect(r.pay).toBe(500);
     expect(r.isAllIn).toBe(true);
   });
+
+  it('短码 all-in：bet 不足大盲但正好全下，允许', () => {
+    const s = state();
+    s.seats[0].chips = 10;
+    const r = validateAction(s, 0, { type: 'bet', amount: 10 });
+    expect(r.pay).toBe(10);
+    expect(r.isAllIn).toBe(true);
+    expect(r.isRaise).toBe(true);
+  });
+
+  it('短码 all-in：raise 不足最小加注但正好全下，允许', () => {
+    const s = state({ currentBet: 50, minRaise: 20 });
+    s.seats[0].chips = 60; // 只能加到 60（不足 50+20）
+    const r = validateAction(s, 0, { type: 'raise', amount: 60 });
+    expect(r.pay).toBe(60);
+    expect(r.isAllIn).toBe(true);
+  });
 });
 
 describe('validateAction - 非法路径', () => {

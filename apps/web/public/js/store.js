@@ -111,7 +111,6 @@ export class Store {
     this.pendingRequest = null;
     this.deadlineTimer = null;
     this.autoSitWanted = false;
-    this.resultTimer = null;
     /** 重连后重新订阅房间是否正在进行（防止重复 join） */
     this.rejoining = false;
   }
@@ -474,7 +473,6 @@ export class Store {
     this.socket?.close?.();
     this.socket = null;
     if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
-    if (this.resultTimer) clearTimeout(this.resultTimer);
     this.pendingRequest = null;
   }
 
@@ -560,6 +558,11 @@ export class Store {
    * @param {any} payload
    */
     applyActionRequest(payload) {
+    /* 契约是"只发给当前行动者"；为稳妥再校验一次座位，
+       别人的请求绝不能当成我的（否则操作会被服务端拒绝） */
+    const mySeat = this.mySeat();
+    if (payload?.seat != null && mySeat != null && payload.seat !== mySeat) return;
+
     // 如果当前不在牌桌界面（在大厅或等待室），直接立刻代打
     if (this.state.phase !== 'table') {
       this.log('挂机中（不在牌桌），自动为你过牌/弃牌', 'warn');
@@ -602,14 +605,9 @@ export class Store {
     const handId = payload?.handId ?? '';
     const lastResult = { handId, result: payload?.result ?? null, board: [...(payload?.board ?? [])], at: Date.now() };
     const hand = this.state.room.snapshot?.hand;
+    this.pendingRequest = null;
     this.patchRoom({ lastResult, actionRequest: null });
     this.showResultOverlay(hand ?? { ...(this.state.room.snapshot?.hand ?? {}), result: payload?.result, board: payload?.board });
-
-    // 给结算浮层留出展示时间，再收起
-    if (this.resultTimer) clearTimeout(this.resultTimer);
-    this.resultTimer = setTimeout(() => {
-      this.patchRoom({ dismissResult: true });
-    }, 6000);
   }
 
   /**

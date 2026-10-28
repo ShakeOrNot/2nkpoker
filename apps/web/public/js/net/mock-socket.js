@@ -15,7 +15,6 @@ import {
   awardPots,
   strengthOf,
   validateBetAmount,
-  quickBets,
   toCallAmount,
   maxBetTarget,
   makeRoomId,
@@ -23,6 +22,7 @@ import {
 
 const SUITS = ['s', 'h', 'd', 'c'];
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+const RANK_VALUE = Object.fromEntries(RANKS.map((r, i) => [r, i + 2]));
 const BOT_NAMES = ['阿豪', '小美', '老张', 'Kiki', '大熊', '阿杰', 'Nana', '老王', '豆豆'];
 
 const STREETS = ['PREFLOP', 'FLOP', 'TURN', 'RIVER'];
@@ -96,19 +96,32 @@ class LocalHand {
     }));
     this.n = this.seats.length;
 
-    const sbSeat = this.n === 2 ? this.buttonSeat : this.nextSeat(this.buttonSeat);
-    const bbSeat = this.nextSeat(sbSeat);
-    this.postBlind(sbSeat, this.smallBlind);
-    this.postBlind(bbSeat, this.bigBlind);
+    /* 座位号 ↔ 下标分离：this.seats 是按座位号排序的参局者数组，
+       内部环形计算（盲注/发牌/行动顺序）一律用下标，
+       对外（currentTurnSeat/lastAggressor）一律用座位号。
+       之前的实现拿座位号当数组下标，座位不连续时（如 0/2/5）
+       盲注扣错人、行动顺序错乱、轮到的人亮错灯。 */
+    this.idxOfSeat = (seat) => {
+      const idx = this.seats.findIndex((s) => s.seat === seat);
+      return idx >= 0 ? idx : 0;
+    };
+    this.seatOfIdx = (idx) => (idx == null ? null : this.seats[idx].seat);
+
+    const buttonIdx = this.idxOfSeat(this.buttonSeat);
+    const sbIdx = this.n === 2 ? buttonIdx : this.nextSeat(buttonIdx);
+    const bbIdx = this.nextSeat(sbIdx);
+    this.postBlind(sbIdx, this.smallBlind);
+    this.postBlind(bbIdx, this.bigBlind);
 
     for (let round = 0; round < 2; round++) {
       for (let i = 0; i < this.n; i++) {
-        const idx = (sbSeat + i) % this.n;
+        const idx = (sbIdx + i) % this.n;
         this.seats[idx].holeCards.push(this.deck.shift());
       }
     }
-    this.lastAggressor = bbSeat;
-    this.currentTurnSeat = this.firstToActPreflop();
+    this.lastAggressor = this.seats[bbIdx].seat;
+    // 翻前第一个行动者：BB 的下一位（heads-up 即按钮位/SB）
+    this.currentTurnSeat = this.seatOfIdx(this.firstAbleFrom((bbIdx + 1) % this.n));
   }
 
   /**
@@ -132,38 +145,30 @@ class LocalHand {
   }
 
   /**
-   * @returns {number|null}
-   */
-  firstToActPreflop() {
-    if (this.n === 2) return this.buttonSeat;
-    // UTG 起：BB 的下一位
-    const bb = this.seats.findIndex((s) => s.betThisStreet === this.bigBlind);
-    const start = bb >= 0 ? this.nextSeat(bb) : this.nextSeat(this.buttonSeat);
-    return this.firstAbleFrom(start);
-  }
-
-  /**
+   * 从 from 下标起，找到第一个还能行动的参局者下标
    * @param {number} from
    * @returns {number|null}
    */
   firstAbleFrom(from) {
     for (let i = 0; i < this.n; i++) {
-      const seat = (from + i) % this.n;
-      const s = this.seats[seat];
-      if (!s.folded && !s.allIn && s.chips > 0) return seat;
+      const idx = (from + i) % this.n;
+      const s = this.seats[idx];
+      if (!s.folded && !s.allIn && s.chips > 0) return idx;
     }
     return null;
   }
 
   /**
+   * 从 from 下标的下一位起找下一个要行动的人（下标）
+   * @param {number} from
    * @returns {number|null}
    */
-  nextToAct(from) {
+  nextToActIdx(from) {
     for (let i = 1; i <= this.n; i++) {
-      const seat = (from + i) % this.n;
-      const s = this.seats[seat];
+      const idx = (from + i) % this.n;
+      const s = this.seats[idx];
       if (s.folded || s.allIn || s.chips <= 0) continue;
-      if (!s.hasActedThisStreet || s.betThisStreet < this.currentBet) return seat;
+      if (!s.hasActedThisStreet || s.betThisStreet < this.currentBet) return idx;
     }
     return null;
   }
@@ -210,7 +215,7 @@ class LocalHand {
   }
 
   /**
-   * 执行动作，返回本步产生的事件
+   * 执行动作（seat 为真实座位号；内部按下标定位）
    * @param {number} seat
    * @param {{type: string, amount?: number}} action
    * @returns {{ ok: boolean, code?: string, events: any[] }}
@@ -218,7 +223,8 @@ class LocalHand {
   act(seat, action) {
     if (this.settled) return { ok: false, code: 'HAND_NOT_ACTIVE', events: [] };
     if (this.currentTurnSeat !== seat) return { ok: false, code: 'NOT_YOUR_TURN', events: [] };
-    const me = this.seats.find((s) => s.seat === seat);
+    const idx = this.idxOfSeat(seat);
+    const me = this.seats[idx];
     if (!me || me.folded || me.allIn) return { ok: false, code: 'INVALID_ACTION', events: [] };
 
     const toCall = toCallAmount(this.snapshot(null), seat);
@@ -282,13 +288,13 @@ class LocalHand {
       return { ok: true, events };
     }
 
-    const next = this.nextToAct(seat);
-    if (next == null) {
+    const nextIdx = this.nextToActIdx(idx);
+    if (nextIdx == null) {
       const advanced = this.advanceStreet();
       events.push(...advanced);
     } else {
-      this.currentTurnSeat = next;
-      events.push({ type: 'turn', seat: next });
+      this.currentTurnSeat = this.seatOfIdx(nextIdx);
+      events.push({ type: 'turn', seat: this.currentTurnSeat });
     }
     return { ok: true, events };
   }
@@ -321,8 +327,9 @@ class LocalHand {
       return [{ type: 'street', street: next, board: [...this.board] }, ...this.advanceStreet()];
     }
 
-    const start = this.street === 'PREFLOP' ? this.buttonSeat : this.nextSeat(this.buttonSeat);
-    this.currentTurnSeat = this.firstAbleFrom(start);
+    const buttonIdx = this.idxOfSeat(this.buttonSeat);
+    const start = this.street === 'PREFLOP' ? buttonIdx : this.nextSeat(buttonIdx);
+    this.currentTurnSeat = this.seatOfIdx(this.firstAbleFrom(start));
     return [{ type: 'street', street: next, board: [...this.board] }];
   }
 
@@ -375,7 +382,9 @@ class LocalHand {
   }
 
   /**
-   * 机器人决策：便宜就看，牌力好就加注，偶尔诈唬
+   * 机器人决策（移植自成熟单机版的 AI）：
+   *   翻前按起手牌力评分，翻后按 7 张评估的牌型 + 同花/顺子听牌加成，
+   *   结合底池赔率决定弃/跟/加；加注量随底池定量。
    * @param {number} seat
    * @returns {{type: string, amount?: number}}
    */
@@ -383,34 +392,93 @@ class LocalHand {
     const snap = this.snapshot(null);
     const me = this.seats.find((s) => s.seat === seat);
     const toCall = toCallAmount(snap, seat);
-    const strength = strengthOf(me.holeCards, this.board);
-    const category = Math.floor(strength / 100 ** 5) || 0;
-    const aggression = Math.random();
+    const maxTarget = maxBetTarget(snap, seat);
+    const canRaise = maxTarget > (snap.currentBet ?? 0);
+    const s = this.botStrength(me) + (Math.random() * 0.12 - 0.06);
+    const pot = snap.pot ?? 0;
+    const bb = snap.bigBlind ?? 20;
 
-    // 牌力很差又得掏钱 → 多数弃牌
-    if (toCall > 0 && category <= 0 && aggression < 0.62) return { type: 'fold' };
-    if (toCall === 0 && category >= 2 && aggression < 0.55) {
-      const options = quickBets(snap, seat).filter((b) => b.kind === 'preset');
-      if (options.length) {
-        const pick = options[Math.min(options.length - 1, Math.floor(aggression * options.length))];
-        return { type: this.currentBet === 0 ? 'bet' : 'raise', amount: pick.amount };
-      }
+    /** @param {number} fraction */
+    const raiseTo = (fraction) => {
+      const currentBet = snap.currentBet ?? 0;
+      const myBet = me.betThisStreet ?? 0;
+      const minTarget = currentBet > 0 ? currentBet + (snap.minRaise ?? bb) : bb;
+      let to = currentBet > 0
+        ? Math.round(currentBet + fraction * (pot + 2 * Math.max(0, currentBet - myBet)))
+        : Math.max(Math.round(fraction * pot), bb);
+      to = Math.max(to, minTarget);
+      return Math.min(to, maxTarget);
+    };
+
+    if (toCall === 0) {
+      const verb = (snap.currentBet ?? 0) > 0 ? 'raise' : 'bet';
+      if (canRaise && s > 0.82) return { type: verb, amount: raiseTo(0.6) };
+      if (canRaise && s > 0.46 && Math.random() < 0.22) return { type: verb, amount: raiseTo(0.45) };
       return { type: 'check' };
     }
-    if (toCall > 0) {
-      if (category >= 3 && aggression < 0.32) {
-        const max = maxBetTarget(snap, seat);
-        return { type: 'all_in', amount: max };
-      }
-      return { type: 'call' };
+
+    const potOdds = toCall / (pot + toCall);
+    let callThresh = potOdds + 0.06;
+    if (toCall >= (me.chips ?? 0) * 0.5) callThresh += 0.18;
+
+    if (canRaise && s > 0.9) return { type: 'raise', amount: raiseTo(0.7) };
+    if (s > callThresh) return { type: 'call' };
+    if (canRaise && (this.board?.length ?? 0) >= 3 && Math.random() < 0.05 && toCall <= (me.chips ?? 0) * 0.25) {
+      return { type: 'raise', amount: raiseTo(0.5) };
     }
-    if (category >= 1 && aggression < 0.4) {
-      const options = quickBets(snap, seat).filter((b) => b.kind === 'preset');
-      if (options.length) {
-        return { type: 'bet', amount: options[0].amount };
-      }
+    return { type: 'fold' };
+  }
+
+  /**
+   * 机器人对当前手牌的实力评分（0.05~0.99，越高越强）
+   * @param {any} me 本座位的手牌数据
+   * @returns {number}
+   */
+  botStrength(me) {
+    const hole = me.holeCards ?? [];
+    const board = this.board ?? [];
+
+    if (!board.length) {
+      /* 翻前：高对 > 大张 > 对子 > 同花连张，弱牌压分 */
+      const ranks = hole.map((c) => RANK_VALUE[c[0]] ?? 2).sort((a, b) => b - a);
+      const high = ranks[0] ?? 2;
+      const low = ranks[1] ?? 2;
+      const suited = hole[0]?.[1] === hole[1]?.[1];
+      let s = 0.25 + ((high - 2) / 12) * 0.45;
+      if (high === low) s += 0.22 + ((high - 2) / 12) * 0.18;
+      else if (suited) s += 0.06;
+      if (high - low <= 2) s += 0.06;
+      if (high >= 13) s += 0.05;
+      if (high <= 9 && low <= 7 && high !== low) s -= 0.08;
+      return Math.max(0.08, Math.min(0.97, s));
     }
-    return { type: 'check' };
+
+    /* 翻后：7 张评估的牌型类别映射 */
+    const strength = strengthOf(hole, board);
+    const cat = Math.floor(strength / 100 ** 5) || 0;
+    let s;
+    if (cat >= 8) s = 0.99;
+    else if (cat === 7) s = 0.98;
+    else if (cat === 6) s = 0.95;
+    else if (cat === 5) s = 0.89;
+    else if (cat === 4) s = 0.85;
+    else if (cat === 3) s = 0.86;
+    else if (cat === 2) s = 0.76;
+    else if (cat === 1) s = 0.48 + ((Math.floor(strength / 100 ** 4) % 100) / 14) * 0.22;
+    else s = 0.18 + ((Math.floor(strength / 100 ** 4) % 100) / 14) * 0.25;
+
+    /* 同花听牌 / 顺子听牌小加成 */
+    const all = [...hole, ...board];
+    const suits = {};
+    for (const c of all) suits[c[1]] = (suits[c[1]] ?? 0) + 1;
+    if (Object.values(suits).some((n) => n >= 4)) s += 0.08;
+    const rs = [...new Set(all.map((c) => RANK_VALUE[c[0]] ?? 0))].sort((a, b) => a - b);
+    for (let i = 0; i < rs.length; i++) {
+      let run = 1;
+      while (i + run < rs.length && rs[i + run] - rs[i] === run) run++;
+      if (run >= 4) { s += 0.06; break; }
+    }
+    return Math.max(0.05, Math.min(0.99, s));
   }
 }
 
@@ -466,8 +534,8 @@ class LocalTable {
       const s = this.seats.get(i);
       seats.push(
         s
-          ? { seat: s.seat, userId: s.userId, nickname: s.nickname, chips: s.chips, ready: s.ready, connected: s.connected }
-          : { seat: i, userId: null, nickname: '', chips: 0, ready: false, connected: false },
+          ? { seat: s.seat, userId: s.userId, nickname: s.nickname, chips: s.chips, ready: s.ready, connected: s.connected, leaving: Boolean(s.leaving) }
+          : { seat: i, userId: null, nickname: '', chips: 0, ready: false, connected: false, leaving: false },
       );
     }
     return {
@@ -663,9 +731,28 @@ export class MockGameSocket {
       }
 
       case 'table:sit': {
+        // 已在座 → 换座（与服务端一致：不用先离座，筹码不变、ready 重置）
         if (this.mySeat != null && t.seats.get(this.mySeat)?.userId === this.userId) {
-          return { ok: false, code: 'ALREADY_SEATED' };
+          if (t.hand && !t.hand.settled) {
+            return { ok: false, code: 'HAND_IN_PROGRESS', message: '牌局进行中，本手结束后才能换座' };
+          }
+          const target = Number.isInteger(payload?.seat) && payload.seat >= 0 ? payload.seat : this.mySeat;
+          if (target === this.mySeat) return { ok: true, seat: this.mySeat, unchanged: true };
+          if (target < 0 || target >= t.maxSeats) return { ok: false, code: 'SEAT_INVALID' };
+          if (t.seats.has(target)) return { ok: false, code: 'SEAT_TAKEN' };
+
+          const mine = t.seats.get(this.mySeat);
+          t.seats.delete(this.mySeat);
+          mine.seat = target;
+          mine.ready = false;
+          delete mine.leaving;
+          t.seats.set(target, mine);
+          this.mySeat = target;
+          t.version += 1;
+          this.broadcast();
+          return { ok: true, seat: target, moved: true };
         }
+
         const seat = Number.isInteger(payload?.seat) && payload.seat >= 0 ? payload.seat : this.firstFreeSeat();
         if (seat == null || seat < 0 || seat >= t.maxSeats) return { ok: false, code: 'SEAT_INVALID' };
         if (t.seats.has(seat) && t.seats.get(seat)?.userId !== this.userId) return { ok: false, code: 'SEAT_TAKEN' };
@@ -688,7 +775,24 @@ export class MockGameSocket {
 
       case 'table:stand': {
         if (this.mySeat == null) return { ok: false, code: 'NOT_SEATED' };
-        if (t.hand && !t.hand.settled) return { ok: false, code: 'HAND_IN_PROGRESS' };
+        const mine = t.seats.get(this.mySeat);
+
+        // 手牌进行中：只标记"本手结束后离桌"，轮到自己就当场弃牌（与服务端一致）
+        if (t.hand && !t.hand.settled) {
+          if (mine) {
+            mine.leaving = true;
+            mine.ready = false;
+          }
+          if (t.hand.currentTurnSeat === this.mySeat) {
+            const toCall = toCallAmount(t.hand.snapshot(null), this.mySeat);
+            const out = t.hand.act(this.mySeat, toCall > 0 ? { type: 'fold' } : { type: 'check' });
+            if (out.ok) this.applyEvents(t, out.events);
+          }
+          t.version += 1;
+          this.broadcast();
+          return { ok: true, pending: true, message: '本手结束后离桌' };
+        }
+
         t.seats.delete(this.mySeat);
         this.mySeat = null;
         t.version += 1;
@@ -753,9 +857,20 @@ export class MockGameSocket {
         });
       }
     }
-    this.broadcast();
-
     if (t.hand?.settled) {
+      // 结算：把最终筹码写回桌面座位（否则下一手还用着扣盲注前的旧筹码），
+      // 并清掉"本手结束后离桌"的人
+      for (const hs of t.hand.seats) {
+        const s = t.seats.get(hs.seat);
+        if (s) s.chips = hs.chips;
+      }
+      for (const [seat, s] of [...t.seats.entries()]) {
+        if (!s.leaving) continue;
+        t.seats.delete(seat);
+        if (this.mySeat === seat) this.mySeat = null;
+      }
+      t.version += 1;
+      this.broadcast();
       this.fire('game:result', {
         handId: t.hand.handId,
         result: t.hand.result,
@@ -764,6 +879,7 @@ export class MockGameSocket {
       this.stopBot();
       return;
     }
+    this.broadcast();
     if (t.hand?.currentTurnSeat != null) this.promptTurn(t);
   }
 
@@ -801,10 +917,16 @@ export class MockGameSocket {
     this.stopBot();
     t.botTimer = setTimeout(() => {
       if (!t.hand || t.hand.settled || t.hand.currentTurnSeat !== seat) return;
-      const action = t.hand.botAction(seat);
-      const out = t.hand.act(seat, action);
+      let action;
+      try {
+        action = t.hand.botAction(seat);
+      } catch (err) {
+        console.error('[mock] botAction failed', err);
+        action = null;
+      }
+      const out = action ? t.hand.act(seat, action) : { ok: false };
       if (!out.ok) {
-        // 兜底：动作不合法就直接过牌/弃牌
+        // 兜底：动作不合法/决策异常就直接过牌/弃牌，绝不让牌局卡死
         const toCall = toCallAmount(t.hand.snapshot(null), seat);
         t.hand.act(seat, toCall > 0 ? { type: 'fold' } : { type: 'check' });
         this.broadcast();
@@ -841,12 +963,14 @@ export class MockGameSocket {
     return out;
   }
 
-  /** 所有人 ready 就开下一手 */
+  /** 所有真人 ready 就开下一手（机器人视为永远准备，否则重进后永远凑不齐） */
   maybeStartHand() {
     const t = this.table;
     if (!t || (t.hand && !t.hand.settled)) return;
     if (t.seats.size < 2) return;
-    const allReady = [...t.seats.values()].every((s) => s.ready);
+    // 真人离桌后就别自己开牌了（否则会变成一群机器人自娱自乐）
+    if (![...t.seats.values()].some((s) => !s.isBot)) return;
+    const allReady = [...t.seats.values()].every((s) => s.ready || s.isBot);
     if (!allReady) return;
 
     // 筹码见底的人自动补码（真人）或离座（机器人）
@@ -870,14 +994,18 @@ export class MockGameSocket {
       })),
     });
     // 盲注与手牌已经扣在 LocalHand 里，同步回座位
+    // 机器人保持 ready（下一手自动凑齐）；真人每手重新准备
     for (const hs of t.hand.seats) {
       const s = t.seats.get(hs.seat);
       if (s) {
         s.chips = hs.chips;
-        s.ready = false;
+        s.ready = Boolean(s.isBot);
       }
     }
-    t.buttonSeat = (t.buttonSeat + 1) % t.maxSeats;
+    // 按钮位轮转到下一个有人坐的座位（空位轮过去会让盲注位错乱）
+    const seatsAsc = [...t.seats.keys()].sort((a, b) => a - b);
+    const cur = seatsAsc.indexOf(t.buttonSeat % t.maxSeats);
+    t.buttonSeat = seatsAsc[(cur + 1) % seatsAsc.length] ?? t.buttonSeat;
     t.version += 1;
 
     this.fire('hand:start', {

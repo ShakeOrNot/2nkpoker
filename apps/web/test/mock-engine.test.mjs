@@ -108,8 +108,27 @@ describe('离线引擎：入座与准备', () => {
     expect(sit1.seat).toBe(seat);
 
     const again = await request(socket, 'table:sit', { tableId: 'j2', seat: freeSeat(seen) ?? 5, buyIn: 1000 });
-    expect(again.ok).toBe(false);
-    expect(again.code).toBe('ALREADY_SEATED');
+    expect(again.ok).toBe(true);
+    expect(again.moved).toBe(true); // 已入座 = 换座（与服务端一致）
+  });
+
+  it('已入座直接换座：筹码不变、ready 重置', async () => {
+    const ctx = me('j2c');
+    await request(ctx.socket, 'table:join', { tableId: 'j2c' });
+    const first = await request(ctx.socket, 'table:sit', { tableId: 'j2c', seat: freeSeat(ctx.seen), buyIn: 1000 });
+    expect(first.ok).toBe(true);
+
+    const target = freeSeat(ctx.seen);
+    const moved = await request(ctx.socket, 'table:sit', { tableId: 'j2c', seat: target, buyIn: 1000 });
+
+    expect(moved.ok).toBe(true);
+    expect(moved.moved).toBe(true);
+    expect(moved.seat).toBe(target);
+    const snap = ctx.seen.snapshots.at(-1);
+    const mine = snap.seats.find((s) => s.userId === 'local_me');
+    expect(mine.seat).toBe(target);
+    expect(mine.chips).toBe(1000);
+    expect(mine.ready).toBe(false);
   });
 
   it('带入筹码超出范围由前端逻辑拦截（这里验证后端会坐下）', async () => {
@@ -257,6 +276,27 @@ describe('离线引擎：一手牌打到底', () => {
     expect(sitRes.ok).toBe(false);
     expect(sitRes.code).toBe('HAND_IN_PROGRESS');
   }, 15000);
+
+  it('手牌进行中离桌：标记 leaving，本手结束自动清座', async () => {
+    const ctx = me('h6');
+    const { seat } = await sitAndReady(ctx, 'h6');
+    const started = await waitFor(() => ctx.seen.snapshots.some((s) => s.hand && !s.hand.settled), 8000);
+    expect(started).toBe(true);
+
+    const leave = await request(ctx.socket, 'table:stand', { tableId: 'h6' });
+    expect(leave.ok).toBe(true);
+    expect(leave.pending).toBe(true);
+
+    const marked = ctx.seen.snapshots.at(-1)?.seats.find((s) => s.seat === seat);
+    expect(marked?.leaving).toBe(true);
+
+    const cleared = await waitFor(
+      () => ctx.seen.snapshots.at(-1)?.seats.every((s) => s.userId !== 'local_me'),
+      20000,
+    );
+    expect(cleared).toBe(true);
+    expect(ctx.socket.mySeat).toBeNull();
+  }, 30000);
 
   it('版本号过期 / 不是自己回合的动作会被拒', async () => {
     const ctx = me('h5');

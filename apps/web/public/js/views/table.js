@@ -81,24 +81,36 @@ export class TableView extends View {
     header.appendChild(headerActions);
     this.root.appendChild(header);
 
-    /* 主区域 */
+    /* 主区域：舞台中央是一张纯 CSS 画的椭圆牌桌（木边 + 呢绒面），
+       座位环绕在桌沿；竖屏时桌子缩小、座位改成桌下方的列表 */
     const main = node('table-main');
 
-    const felt = node('table-felt');
-    const potRow = node('pot-row');
+    const stage = node('table-stage');
+    this.stageEl = stage;
+
+    const oval = node('table-oval');
+    const center = node('table-center');
+    const potRow = node('pot-pill');
     this.potEl = node('pot-value', '0');
     potRow.appendChild(tag('span', 'pot-label', '底池'));
     potRow.appendChild(this.potEl);
     this.streetEl = tag('span', 'street-tag', '');
     potRow.appendChild(this.streetEl);
-    felt.appendChild(potRow);
+    center.appendChild(potRow);
 
     this.boardWrap = node('board-wrap');
-    felt.appendChild(this.boardWrap);
+    center.appendChild(this.boardWrap);
+    oval.appendChild(center);
 
-    this.seatsWrap = node('seats');
-    felt.appendChild(this.seatsWrap);
-    main.appendChild(felt);
+    /* 座位层：横屏铺在椭圆上（--seat-x/y 定位），竖屏是桌下的列表 */
+    this.seatsOval = node('seats seats-oval');
+    oval.appendChild(this.seatsOval);
+    stage.appendChild(oval);
+
+    this.seatsList = node('seats seats-portrait');
+    stage.appendChild(this.seatsList);
+
+    main.appendChild(stage);
 
     /* 日志面板 */
     this.logPanel = node('log-panel');
@@ -227,18 +239,19 @@ export class TableView extends View {
       this.boardWrap.replaceChildren(boardEl(hand?.board ?? [], { size: 'lg' }));
     }
 
-    /* 座位 */
+    /* 座位：横屏环绕椭圆，竖屏桌下列表（两套容器，只渲染可见那套） */
     const order = this.seatOrder(maxSeats, mySeat);
     const portrait = this.isPortraitLayout(state.layout);
+    this.stageEl.classList.toggle('is-portrait', portrait);
+    this.seatsOval.classList.toggle('hidden', portrait);
+    this.seatsList.classList.toggle('hidden', !portrait);
+    const seatsWrap = portrait ? this.seatsList : this.seatsOval;
     const occupied = seats.filter((s) => s.userId).length;
     const delta = hand?.result ? chipDelta(hand) : new Map();
 
     const visibleOrder = portrait
       ? order.filter((seat) => seats.find((s) => s.seat === seat)?.userId || seat === mySeat)
       : order;
-
-    this.seatsWrap.classList.toggle('seats-portrait', portrait);
-    this.seatsWrap.classList.toggle('seats-oval', !portrait);
 
     // 按顺序写 DOM（保证 MVP 在最后 → 视觉上在最下方）
     const frag = document.createDocumentFragment();
@@ -263,7 +276,7 @@ export class TableView extends View {
       });
       frag.appendChild(el);
     });
-    this.seatsWrap.replaceChildren(frag);
+    seatsWrap.replaceChildren(frag);
 
     /* 底部：旁观条 / 我的牌 */
     const seated = Boolean(me);

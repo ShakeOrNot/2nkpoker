@@ -94,12 +94,42 @@ export class ControlsView {
     submitRow.appendChild(this.allInBtn);
     this.root.appendChild(submitRow);
 
-    /* 非我回合时的提示 */
+    /* 非我回合时的提示 + 我的行动倒计时（两个独立元素，避免 setText 互相清空） */
     this.waiting = node('ctrl-waiting', '等待其他玩家行动…');
     this.root.appendChild(this.waiting);
 
+    this.countdownEl = node('ctrl-countdown-row');
+    this.countdownEl.appendChild(tag('span', 'ctrl-cd-label', '你的行动倒计时'));
+    this.countdown = tag('span', 'ctrl-countdown', '');
+    this.countdownEl.appendChild(this.countdown);
+    this.root.appendChild(this.countdownEl);
+
     this.disabledOverlay = node('ctrl-disabled');
     this.root.appendChild(this.disabledOverlay);
+
+    /* 倒计时刷新：只在轮到我且有时限时跑 */
+    this.countdownTimer = setInterval(() => this.renderCountdown(), 300);
+  }
+
+  /**
+   * 行动倒计时：轮到我且服务端给了 deadline 时显示剩余秒数（<8s 变红）
+   */
+  renderCountdown() {
+    const active = this.root.classList.contains('controls-active');
+    const deadline = Number(this.store.state.room.actionRequest?.deadline ?? 0);
+    const show = active && deadline > 0;
+    this.countdownEl.classList.toggle('visible', show);
+    if (!show) {
+      if (this.countdown.textContent) this.countdown.textContent = '';
+      this.countdown.classList.remove('urgent');
+      return;
+    }
+    const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    const text = left > 0 ? `剩余 ${left}s` : '时间到';
+    if (this.countdown.textContent !== text) {
+      this.countdown.textContent = text;
+      this.countdown.classList.toggle('urgent', left > 0 && left <= 8);
+    }
   }
 
   /**

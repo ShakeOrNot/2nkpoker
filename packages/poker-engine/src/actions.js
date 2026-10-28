@@ -64,7 +64,10 @@ export function validateAction(state, seat, action) {
     case 'bet': {
       if (state.currentBet !== 0) throw new Error(ActionError.INVALID_ACTION);
       const amount = num(action.amount);
-      if (amount < state.bigBlind) throw new Error(ActionError.INVALID_ACTION);
+      /* 不足大盲但正好是全部积分/筹码 → 视为 all-in 下注，允许（与前端校验一致） */
+      if (amount < state.bigBlind && amount !== s.chips) {
+        throw new Error(ActionError.INVALID_ACTION);
+      }
       if (amount > s.chips) throw new Error(ActionError.INSUFFICIENT_CHIPS);
       return { pay: amount, isRaise: true, isAllIn: amount === s.chips };
     }
@@ -72,7 +75,9 @@ export function validateAction(state, seat, action) {
     case 'raise': {
       if (state.currentBet === 0) throw new Error(ActionError.INVALID_ACTION);
       const target = num(action.amount);
-      if (target < state.currentBet + state.minRaise) {
+      const maxTarget = s.betThisStreet + s.chips;
+      /* 不足最小加注但正好全下 → 允许（短码 all-in 不重开行动由状态机处理） */
+      if (target < state.currentBet + state.minRaise && target !== maxTarget) {
         throw new Error(ActionError.INVALID_ACTION);
       }
       const pay = target - s.betThisStreet;

@@ -33,6 +33,20 @@ export class LobbyView extends View {
     this.build();
   }
 
+  /**
+   * 每次从牌桌/等待室回到大厅：重置到「加入牌局」列表页并强制刷新。
+   * 否则上次展开的创建表单会挂着、刚创建/加入过的牌局不会出现在列表里，
+   * 重复进出时看起来像"房间丢了"。
+   * @param {HTMLElement} container
+   */
+  mount(container) {
+    super.mount(container);
+    this.manualOpen = false;
+    this.createOpen = false;
+    this.listState = 'idle';
+    this.setMode('list');
+  }
+
   build() {
     /* 顶栏 */
     const header = node('app-header');

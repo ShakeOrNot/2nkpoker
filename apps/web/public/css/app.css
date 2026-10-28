@@ -812,9 +812,10 @@ input {
 /* ---------------------------------------------------------------- 10. 牌桌页 */
 /* 界面自上而下：
      顶栏（房号 + 连接状态 + 邀请 / 日志）
-     牌毡（底池 + 阶段 + 公共牌 + 座位）
+     舞台：居中一张椭圆牌桌（纯 CSS 木边 + 呢绒面），座位环绕桌沿；
+           竖屏时桌子缩小，座位改为桌下列表
      我的区域（两张底牌 + 昵称位置 + 筹码 + 当前牌型）
-     操作栏（弃牌/过牌/跟注 + 自定义金额 + 快捷下注 + 加注/全下）
+     操作栏（弃牌/过牌/跟注 + 自定义金额 + 快捷下注 + 加注/全下 + 行动倒计时）
      旁观条（没入座时替代操作栏）
      日志面板（点「日志」从右侧滑出）
    代码：js/views/table.js（结构）、js/views/controls.js（操作栏）、js/views/cards.js（牌面） */
@@ -845,7 +846,7 @@ input {
   color: var(--muted);
 }
 
-/* 牌桌主体：牌毡 + 日志面板（日志绝对定位浮在上面） */
+/* 牌桌主体：舞台 + 日志面板（日志绝对定位浮在上面） */
 .table-main {
   flex: 1;
   display: flex;
@@ -853,44 +854,102 @@ input {
   position: relative;
 }
 
-/* 牌毡：绿色径向渐变，纵向排列「底池 → 公共牌 → 座位」 */
-.table-felt {
+/* 舞台：深色桌房背景，椭圆桌居中；竖屏时改为纵向（桌在上、座位列表在下） */
+.table-stage {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 14px 14px;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(130% 100% at 50% 0%, #131b20 0%, #0a0d11 72%);
+}
+
+.table-stage.is-portrait {
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 10px;
+  overflow-y: auto;
+  align-items: stretch;
+}
+
+/* 椭圆牌桌：木色外圈用多层投影描出，呢绒面径向渐变；纯 CSS，无贴图 */
+.table-oval {
+  position: relative;
+  width: min(96%, 780px);
+  aspect-ratio: 2 / 1;
+  max-height: 88%;
+  flex: 0 0 auto;
+  border-radius: 50% / 50%;
+  background: radial-gradient(90% 72% at 50% 36%, #20714f 0%, #155039 55%, #0c3122 100%);
+  box-shadow:
+    0 0 0 9px #31210f,
+    0 0 0 11px #4d3517,
+    0 0 0 12px rgba(0, 0, 0, 0.55),
+    inset 0 0 46px rgba(0, 0, 0, 0.45),
+    0 16px 34px rgba(0, 0, 0, 0.5);
+}
+
+/* 桌面内圈高光细线 */
+.table-oval::before {
+  content: '';
+  position: absolute;
+  inset: 13px;
+  border-radius: 50% / 50%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+/* 桌面中央：底池 + 阶段 + 公共牌 */
+.table-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 10px 10px 14px;
-  background: radial-gradient(120% 80% at 50% 0%, var(--felt-1), var(--felt-2) 70%);
-  min-height: 0;
-  overflow: hidden;
+  gap: 10px;
+  width: 78%;
 }
 
 /* 底池胶囊：「底池 1.2k | 翻牌」 */
-.pot-row {
+.pot-pill {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(3, 12, 8, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
-  padding: 5px 12px;
+  padding: 5px 14px;
 }
 
-.pot-label { font-size: 12px; color: #b9c6b6; }
+.pot-label { font-size: 12px; color: #9fc3ae; letter-spacing: 2px; }
 
 /* 底池金额（等宽数字，跳动时不抖） */
 .pot-value {
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 18px;
   font-variant-numeric: tabular-nums;
+  color: #fff;
 }
 
 /* 阶段标签：翻牌前 / 翻牌 / 转牌 / 河牌 / 已结算 */
 .street-tag {
   font-size: 12px;
-  color: #cfe3d7;
+  color: var(--accent);
   border-left: 1px solid rgba(255, 255, 255, 0.15);
   padding-left: 8px;
+}
+
+.board-wrap {
+  display: flex;
+  justify-content: center;
+  min-height: 62px;
 }
 
 /* --- 牌面 --- 由 js/views/cards.js 生成：
@@ -952,25 +1011,19 @@ input {
 }
 
 /* --- 牌桌座位 --- 每个座位卡片显示：位置名/庄家、昵称、筹码、本街下注、手牌、状态角标
-   两种排布见下方 .seats-portrait（竖屏）与 .seats-oval（横屏/平板） */
+   两套容器：.seats-oval 绝对定位铺在椭圆桌沿；.seats-portrait 桌下纵向列表 */
 
-.seats {
-  flex: 1;
-  width: 100%;
-  min-height: 0;
-  position: relative;
-}
-
-/* 座位卡基础外观（半透明，压在牌毡上） */
 .seat {
-  background: rgba(10, 20, 16, 0.72);
+  background: rgba(6, 15, 11, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 12px;
   padding: 7px 10px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 /* 座位卡顶部：位置名（BTN/SB/BB/UTG/HJ/CO），金色小字 */
@@ -995,18 +1048,23 @@ input {
 .seat-chips {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
-  color: #d7e6dd;
+  color: #e2ecdf;
 }
 
-/* 本街已下注（>0 时才显示，金色） */
-.seat-bet {
-  display: none;
+/* 本街已下注（>0 时才显示，金色胶囊挂在座位卡上） */
+.seat-bet { display: none; }
+
+.seat-bet.visible {
+  display: inline-block;
+  align-self: flex-start;
   font-size: 11px;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
+  background: rgba(246, 196, 83, 0.13);
+  border: 1px solid rgba(246, 196, 83, 0.45);
+  border-radius: 999px;
+  padding: 1px 8px;
 }
-
-.seat-bet.visible { display: block; }
 
 /* 座位上的两张牌位置（别人未亮牌时是牌背） */
 .seat-cards {
@@ -1060,14 +1118,14 @@ input {
 .seat-allin { border-color: rgba(229, 72, 77, 0.8); }
 .seat-winner { border-color: var(--accent); background: rgba(246, 196, 83, 0.14); }
 
-/* 【布局一】竖屏：座位纵向排队，一列到底（自己永远在最下方，由 JS 决定顺序） */
+/* 【布局一】竖屏：座位纵向排队（自己永远在最下方，由 JS 决定顺序） */
 .seats-portrait {
+  width: min(560px, 100%);
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  justify-content: center;
   gap: 6px;
-  padding: 4px 0;
-  overflow-y: auto;
+  padding: 2px 0 6px;
 }
 
 .seats-portrait .seat {
@@ -1082,10 +1140,13 @@ input {
 .seats-portrait .seat-top { min-width: 22px; }
 .seats-portrait .seat-tags { margin-left: auto; }
 .seats-portrait .seat-delta { margin-left: auto; }
+.seats-portrait .seat-bet.visible { align-self: center; }
 
-/* 【布局二】横屏/平板：椭圆牌桌 —— 座位用 JS 算好的角度绝对定位（--seat-x/--seat-y） */
+/* 【布局二】横屏/平板：座位绝对定位环绕椭圆桌沿
+   （--seat-x/--seat-y 由 JS 传入；容器略微外扩，让名牌压在木边上） */
 .seats-oval {
-  display: block;
+  position: absolute;
+  inset: -6.5% -4.5%;
 }
 
 .seats-oval .seat {
@@ -1093,7 +1154,7 @@ input {
   left: var(--seat-x);
   top: var(--seat-y);
   transform: translate(-50%, -50%);
-  width: 116px;
+  width: 118px;
   text-align: center;
   align-items: center;
 }
@@ -1101,6 +1162,7 @@ input {
 .seats-oval .seat-cards { justify-content: center; }
 .seats-oval .seat-tags { justify-content: center; }
 .seats-oval .seat-name { max-width: 108px; }
+.seats-oval .seat-bet.visible { align-self: center; }
 
 /* --- 我的区域 --- 右下角常驻：我的两张底牌 + 昵称/位置 + 筹码 + 当前牌型 */
 .my-zone {
@@ -1204,6 +1266,28 @@ input {
   color: var(--muted);
   padding: 10px 0;
 }
+
+/* 我的行动倒计时（独立一行，只在轮到我时出现）：<8s 变红 */
+.ctrl-countdown-row {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ctrl-countdown-row.visible { display: flex; }
+
+.ctrl-cd-label { color: var(--muted); }
+
+.ctrl-countdown {
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ctrl-countdown.urgent { color: #ff9a9c; }
 
 .ctrl-disabled { display: none; }
 
@@ -1441,8 +1525,7 @@ input {
 
 /* 强制横屏布局：隐藏竖屏座位列表，改用椭圆牌桌 */
 body[data-layout='landscape'] .seats-portrait { display: none !important; }
-body[data-layout='landscape'] .seats-oval { display: block !important; }
-body[data-layout='landscape'] .table-felt { padding: 14px 18px; }
+body[data-layout='landscape'] .seats-oval { display: flex !important; }
 
 /* 强制竖屏布局 */
 body[data-layout='portrait'] .seats-oval { display: none !important; }
@@ -1480,7 +1563,8 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
   .btn-lg { padding: 11px 14px; font-size: 15px; }
   .controls .ctrl-quicks { padding-bottom: 0; }
   .controls .amount-hint { display: none; }
-  .table-felt { gap: 6px; padding-bottom: 8px; }
+  .table-stage { padding: 6px 8px 8px; }
+  .table-oval { width: min(92%, 640px); }
 }
 
 /* 【小屏手机 ≤360px】座位卡与按钮再收紧，避免换行挤压 */
