@@ -63,6 +63,7 @@ cp .env.example .env      # Windows: copy .env.example .env
 | `JWT_ISSUER` / `JWT_AUDIENCE` | `2nkpoker` / `2nkpoker-web` | JWT 校验用 |
 | `ACTION_TIMEOUT_MS` | 30000 | 轮到某人行动的超时，超时自动过牌/弃牌 |
 | `RECONNECT_GRACE_MS` | 30000 | 掉线后保留座位的宽限期 |
+| `SETTLE_HOLD_MS` | 2500 | 一手结束后停多久再开下一手（放结算动画） |
 
 ### 3. 启动
 

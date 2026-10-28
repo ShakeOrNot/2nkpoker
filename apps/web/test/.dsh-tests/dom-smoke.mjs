@@ -59,7 +59,18 @@ class FakeNode {
   addEventListener(type, fn) { if (!this.listeners.has(type)) this.listeners.set(type, new Set()); this.listeners.get(type).add(fn); }
   removeEventListener(type, fn) { this.listeners.get(type)?.delete(fn); }
   dispatch(type) { for (const fn of this.listeners.get(type) ?? []) fn({ preventDefault() {} }); }
-  querySelector() { return null; }
+  querySelector(sel) {
+    // 只支持 '.class' 选择器（够视图层用），深度优先按插入顺序找第一个
+    if (typeof sel !== 'string' || !sel.startsWith('.')) return null;
+    const want = sel.slice(1);
+    const queue = [...this.children];
+    while (queue.length) {
+      const n = queue.shift();
+      if (n.classList?.contains(want)) return n;
+      if (n.children?.length) queue.push(...n.children);
+    }
+    return null;
+  }
   querySelectorAll() { return []; }
   focus() {}
   closest() { return null; }
@@ -346,6 +357,49 @@ if (!failed) {
   } catch (err) {
     failed++;
     console.log(`  FAIL  等候室离座后重新入座: ${err?.message ?? err}`);
+  }
+
+  /* ---- 离线练习：大厅/等待室/牌桌都要有「退出离线」按钮 ---- */
+  try {
+    const appStore = globalThis.window.__poker.store;
+    const views = globalThis.window.__poker.views;
+    const snap = {
+      tableId: 'demo01',
+      version: 1,
+      smallBlind: 10,
+      bigBlind: 20,
+      buttonSeat: 0,
+      maxSeats: 6,
+      seats: [
+        { seat: 0, userId: 'local_me', nickname: '我', chips: 1000, ready: false, connected: true, leaving: false },
+      ],
+      hand: null,
+    };
+
+    appStore.state.offline = true;
+    appStore.state.session = { token: 'offline', userId: 'local_me', nickname: '我', expiresAt: 0 };
+    appStore.state.room = { ...appStore.state.room, tableId: 'demo01', snapshot: snap };
+    const st = appStore.state;
+
+    views.lobby.render(st);
+    views.waiting.render(st);
+    views.table.render(st);
+
+    if (views.lobby.logoutBtn.textContent !== '退出离线') {
+      throw new Error(`大厅按钮文案是 ${views.lobby.logoutBtn.textContent}`);
+    }
+    if (views.waiting.exitBtn.textContent !== '退出离线') {
+      throw new Error(`等待室按钮文案是 ${views.waiting.exitBtn.textContent}`);
+    }
+    if (views.table.exitBtn.textContent !== '退出离线') {
+      throw new Error(`牌桌按钮文案是 ${views.table.exitBtn.textContent}`);
+    }
+    appStore.state.offline = false;
+    console.log('  ok    离线模式下大厅/等待室/牌桌都有「退出离线」');
+  } catch (err) {
+    failed++;
+    console.log(`  FAIL  离线模式退出按钮: ${err?.message ?? err}`);
+    if (err?.stack) console.log(err.stack.split('\n').slice(0, 4).join('\n'));
   }
 }
 

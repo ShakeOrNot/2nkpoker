@@ -904,6 +904,13 @@ export class MockGameSocket {
 
     if (seat === this.mySeat) {
       this.stopBot();
+      // 已经点了"离桌"：别把牌局卡在自己身上，直接过牌/弃牌
+      if (s.leaving) {
+        const toCall = toCallAmount(hand.snapshot(null), seat);
+        const out = hand.act(seat, toCall > 0 ? { type: 'fold' } : { type: 'check' });
+        if (out.ok) this.applyEvents(t, out.events);
+        return;
+      }
       this.fire('game:action_request', {
         handId: hand.handId,
         seat,

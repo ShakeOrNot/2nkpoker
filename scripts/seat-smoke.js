@@ -171,11 +171,12 @@ async function main() {
   const freedSeat = afterSettle.seats.find((x) => !x.userId).seat;
 
   /* ---------- 3. 离桌后可以重新进入 ---------- */
-  // 结算后桌上自动开了下一手，所以这时重新入座应该走"排队"（正常流程）
+  // 结算后有 SETTLE_HOLD_MS 的停顿：这期间点"坐下"直接入座；停顿结束、下一手开了则进排队。
+  // 两种都是正常路径，这里只要求"不报错、能回到桌上"。
   const reSit = await emitAck(leaver, 'table:sit', { tableId: TABLE_ID, seat: freedSeat, buyIn: BUY_IN });
   check(
-    reSit.ok === false && reSit.queued === true,
-    `牌局进行中重新入座会排队（${JSON.stringify(reSit)}）`,
+    reSit.ok === true || reSit.queued === true,
+    `离桌后可以重新入座（直接入座或排队：${JSON.stringify(reSit)}）`,
   );
 
   // 取消排队 + 退订房间后，还能重新进一张空桌正常入座

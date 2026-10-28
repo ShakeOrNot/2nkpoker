@@ -61,7 +61,7 @@ export class LobbyView extends View {
     this.logoutBtn = button({
       label: '退出',
       className: 'btn-ghost btn-sm',
-      onClick: () => this.store.logout(),
+      onClick: () => this.doExit(),
     });
     actions.appendChild(this.logoutBtn);
     header.appendChild(actions);
@@ -391,11 +391,20 @@ export class LobbyView extends View {
   }
 
   /**
+   * 退出：离线模式顺手关掉离线开关，避免下次登录还是离线
+   */
+  doExit() {
+    if (this.store.state.offline) this.store.exitOffline();
+    else this.store.logout();
+  }
+
+  /**
    * @param {any} state
    */
   render(state) {
     setText(this.userLabel, state.session?.nickname ? `${state.session.nickname}` : '未登录');
     setDisabled(this.createBtn, Boolean(state.busy));
+    setText(this.logoutBtn, state.offline ? '退出离线' : '退出');
 
     const offlineTag = state.offline ? '（离线练习）' : '';
     setText(

@@ -38,9 +38,12 @@ function waitEvent(socket, event, predicate = () => true, timeout = 5000) {
 }
 
 const TABLE_ID = 'play-smoke';
+/** 每手结算到下一手 hand:start 的间隔（毫秒）；用来守住"结算动画时间" */
+const gaps = [];
 
 function setupClient(socket, name, mySeat) {
   let myVersion = 0;
+  let lastResultAt = 0;
 
   socket.on('table:snapshot', (s) => {
     if (s.hand) myVersion = s.hand.version;
@@ -51,7 +54,15 @@ function setupClient(socket, name, mySeat) {
     console.log(`[${name}] snapshot ${line}`);
   });
 
-  socket.on('hand:start', (p) => console.log(`[${name}] hand:start ${p.handId}`));
+  socket.on('hand:start', (p) => {
+    if (lastResultAt) {
+      gaps.push(Date.now() - lastResultAt);
+      console.log(`[${name}] hand:start ${p.handId} (距上次结算 ${gaps[gaps.length - 1]}ms)`);
+      lastResultAt = 0;
+    } else {
+      console.log(`[${name}] hand:start ${p.handId}`);
+    }
+  });
 
   socket.on('game:action_request', (p) => {
     console.log(`[${name}] MY TURN, legal=${p.legalActions.join(',')}`);
@@ -69,7 +80,10 @@ function setupClient(socket, name, mySeat) {
     }, (res) => console.log(`[${name}] action ack:`, res));
   });
 
-  socket.on('game:result', (p) => console.log(`[${name}] RESULT ${JSON.stringify(p.result.payouts)}`));
+  socket.on('game:result', (p) => {
+    lastResultAt = Date.now();
+    console.log(`[${name}] RESULT ${JSON.stringify(p.result.payouts)}`);
+  });
   socket.on('game:action_applied', (p) => console.log(`[${name}] saw action by seat ${p.seat}`));
 }
 
@@ -97,6 +111,18 @@ async function main() {
   await new Promise((r) => bob.emit('table:ready', { tableId: TABLE_ID, ready: true }, r));
 
   await delay(15000);
+
+  console.log(`\n结算 → 下一手 间隔：${gaps.length ? gaps.join('ms / ') + 'ms' : '（没观察到连续两手）'}`);
+  if (!gaps.length) {
+    console.error('FAIL 没观察到"结算后开下一手"，无法确认结算动画时间');
+    process.exit(1);
+  }
+  const tooFast = gaps.filter((g) => g < 1500);
+  if (tooFast.length) {
+    console.error(`FAIL 结算后 ${tooFast.join(',')}ms 就开下一手，前端来不及放结算动画（SETTLE_HOLD_MS?）`);
+    process.exit(1);
+  }
+  console.log('PASS 结算后停顿足够放结算动画');
 
   alice.close();
   bob.close();

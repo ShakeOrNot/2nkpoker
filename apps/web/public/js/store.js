@@ -254,6 +254,16 @@ export class Store {
   }
 
   /**
+   * 退出离线练习：关掉离线开关 + 清登录态，回到登录页（默认连真实后端）。
+   * 只 logout 是不够的 —— 离线开关会留在 localStorage 里，下次登录还是离线。
+   * @param {string} [message]
+   */
+  exitOffline(message = '已退出离线练习') {
+    this.setOffline(false);
+    this.logout(message);
+  }
+
+  /**
    * @param {string} layout
    */
   setLayout(layout) {

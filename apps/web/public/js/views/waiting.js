@@ -88,6 +88,12 @@ export class WaitingView extends View {
     header.appendChild(tag('div', 'header-title', '等待室'));
     this.connBadge = node('badge');
     header.appendChild(this.connBadge);
+    this.exitBtn = button({
+      label: '退出',
+      className: 'btn-ghost btn-sm',
+      onClick: () => this.doExit(),
+    });
+    header.appendChild(this.exitBtn);
     this.root.appendChild(header);
 
     const body = node('waiting-body');
@@ -228,6 +234,12 @@ export class WaitingView extends View {
     else toast('已取消排队', 'info');
   }
 
+  /** 退出：离线模式顺手关掉离线开关，避免下次登录还是离线 */
+  doExit() {
+    if (this.store.state.offline) this.store.exitOffline();
+    else this.store.logout();
+  }
+
   /**
    * 返回大厅 = 主动离桌：自动离座并退出房间。
    * 手牌进行中服务端会标记"本手结束后离桌"，这里先回大厅等结算，
@@ -258,6 +270,7 @@ export class WaitingView extends View {
     const [connText, connCls] = connMap[state.connection] ?? connMap.idle;
     setText(this.connBadge, connText);
     this.connBadge.className = `badge ${connCls}`;
+    setText(this.exitBtn, state.offline ? '退出离线' : '退出');
 
     const seats = snap?.seats ?? [];
     const occupied = seats.filter((s) => s.userId).length;

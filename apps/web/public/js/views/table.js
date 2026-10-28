@@ -78,6 +78,12 @@ export class TableView extends View {
     });
     headerActions.appendChild(this.inviteBtn);
     headerActions.appendChild(this.logBtn);
+    this.exitBtn = button({
+      label: '退出',
+      className: 'btn-ghost btn-sm',
+      onClick: () => this.doExit(),
+    });
+    headerActions.appendChild(this.exitBtn);
     header.appendChild(headerActions);
     this.root.appendChild(header);
 
@@ -160,6 +166,12 @@ export class TableView extends View {
     this.root.appendChild(this.resultOverlay);
   }
 
+  /** 退出：离线模式顺手关掉离线开关，避免下次登录还是离线 */
+  doExit() {
+    if (this.store.state.offline) this.store.exitOffline();
+    else this.store.logout();
+  }
+
   async copyInvite() {
     const tableId = this.store.state.room.tableId;
     if (!isValidRoomId(tableId)) return;
@@ -227,6 +239,7 @@ export class TableView extends View {
 
     setText(this.roomIdEl, `房号 ${state.room.tableId || '----'}`);
     setText(this.connEl, state.connection === 'online' ? '已连接' : state.connection === 'connecting' ? '连接中…' : '已断开');
+    setText(this.exitBtn, state.offline ? '退出离线' : '退出');
 
     /* 底池与阶段 */
     setText(this.potEl, hand ? chips(hand.pot ?? 0) : '0');

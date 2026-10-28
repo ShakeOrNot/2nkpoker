@@ -2,14 +2,27 @@ import { playAction, cleanupAfterHand, maybeStartHand } from './handOrchestrator
 import { broadcastTable } from '../ws/handlers/table.sit.js';
 
 const ACTION_TIMEOUT_MS = Number(process.env.ACTION_TIMEOUT_MS ?? 30000);
+// 一手结束后停多久再开下一手：留给前端放结算动画/浮层。
+// 以前这里是立刻开下一手，浮层刚出现就被 hand:start 冲掉了。
+const SETTLE_HOLD_MS = Number(process.env.SETTLE_HOLD_MS ?? 2500);
 
 /** @type {Map<string, NodeJS.Timeout>} */
 const timers = new Map();
+/** 结算后"等一会儿再开下一手"的定时器，每桌一个，防重复 */
+/** @type {Map<string, NodeJS.Timeout>} */
+const nextHandTimers = new Map();
 
 export function clearActionTimer(tableId) {
   const t = timers.get(tableId);
   if (t) clearTimeout(t);
   timers.delete(tableId);
+}
+
+/** 取消"下一手"的排队定时器（离桌/断线清理时用） */
+export function clearNextHandTimer(tableId) {
+  const t = nextHandTimers.get(tableId);
+  if (t) clearTimeout(t);
+  nextHandTimers.delete(tableId);
 }
 
 /** 广播"这手牌开始" */
@@ -52,7 +65,8 @@ export function broadcastActionRequest(nsp, t) {
 
   // 启动超时
    const player = t.seats.get(turnSeat);
-   const delay = (player && !player.connected) ? 100 : ACTION_TIMEOUT_MS;
+   // 掉线的、或已经点了"本手结束后离桌"的：别让整桌等他 30 秒，100ms 后直接代打
+   const delay = (player && (!player.connected || player.leaving)) ? 100 : ACTION_TIMEOUT_MS;
    const timer = setTimeout(() => {
     timers.delete(t.tableId);
     t.actor.run(() => {
@@ -123,11 +137,20 @@ export function broadcastResult(nsp, t, handId) {
   }
 
   broadcastTable(nsp, t);
-  if (maybeStartHand(t)) {
-    broadcastTable(nsp, t);
-    broadcastHandStart(nsp, t);
-    broadcastActionRequest(nsp, t);
-  }
+
+  // 结算后停 SETTLE_HOLD_MS 再开下一手：让前端有时间播结算浮层/动画。
+  // 期间有人离座/取消准备的话，maybeStartHand 会自然返回 false。
+  clearNextHandTimer(t.tableId);
+  const timer = setTimeout(() => {
+    nextHandTimers.delete(t.tableId);
+    t.actor.run(() => {
+      if (!maybeStartHand(t)) return;
+      broadcastTable(nsp, t);
+      broadcastHandStart(nsp, t);
+      broadcastActionRequest(nsp, t);
+    });
+  }, SETTLE_HOLD_MS);
+  nextHandTimers.set(t.tableId, timer);
 }
 
 function computeLegalActions(t, seat) {
