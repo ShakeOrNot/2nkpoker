@@ -112,10 +112,26 @@ export function broadcastActionRequest(nsp, t) {
 
 /** 广播结算 + 清理 + 尝试开下一手 */
 export function broadcastResult(nsp, t, handId) {
+  // 结算明细需要的座位信息（昵称/投入/弃牌）必须随结果一起发出去：
+  // 紧接着 cleanupAfterHand 会把 handState 清空，客户端手里就没有座位数据，
+  // 结算浮层会因为"没有 seats"画不出来（这就是联机模式少结算框的原因）。
+  // 注意：不含 holeCards，亮牌只走 result.revealed，避免泄露未亮牌的手牌。
+  const publicSeats = t.handState.seats.map((s) => ({
+    seat: s.seat,
+    userId: s.userId,
+    nickname: s.nickname,
+    chips: s.chips,
+    betThisStreet: s.betThisStreet,
+    totalCommitted: s.totalCommitted,
+    folded: s.folded,
+    allIn: s.allIn,
+  }));
+
   nsp.to(`table:${t.tableId}`).emit('game:result', {
     handId,
     result: t.handState.result,
     board: t.handState.board,
+    seats: publicSeats,
   });
   const seated = cleanupAfterHand(t);
 

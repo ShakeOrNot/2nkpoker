@@ -394,8 +394,32 @@ if (!failed) {
     if (views.table.exitBtn.textContent !== '退出离线') {
       throw new Error(`牌桌按钮文案是 ${views.table.exitBtn.textContent}`);
     }
+
+    // 结算浮层：服务端清空 hand 之后仍要能画（联机少结算框的回归点）
+    appStore.state.room.lastResult = {
+      handId: 'h9',
+      result: {
+        pots: [{ amount: 20, eligibleSeats: [0], contributorSeats: [0, 1] }],
+        payouts: { 0: 20 },
+        revealed: {},
+        forcedWinnerSeat: 0,
+      },
+      board: ['As', 'Kd', '2c', '7h', '9s'],
+      seats: [
+        { seat: 0, userId: 'local_me', nickname: '我', chips: 1020, totalCommitted: 10, folded: false, allIn: false },
+        { seat: 1, userId: 'bot_1', nickname: '豆豆', chips: 990, totalCommitted: 10, folded: true, allIn: false },
+      ],
+      at: Date.now(),
+    };
+    appStore.state.room.snapshot = { ...snap, hand: null };
+    views.table.render(appStore.state);
+    if (!views.table.resultOverlay.classList.contains('visible')) {
+      throw new Error('手牌被清空后结算浮层消失了（联机模式会没有结算框）');
+    }
+
     appStore.state.offline = false;
     console.log('  ok    离线模式下大厅/等待室/牌桌都有「退出离线」');
+    console.log('  ok    hand 被清空后结算浮层仍显示');
   } catch (err) {
     failed++;
     console.log(`  FAIL  离线模式退出按钮: ${err?.message ?? err}`);

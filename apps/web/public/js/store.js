@@ -534,10 +534,16 @@ export class Store {
       else if (seated || this.state.phase === 'waiting') phase = this.state.phase === 'table' && !seated ? 'waiting' : phase;
     }
 
-    // 已经结算过的手牌 → 记住结算数据，等 user 看完再走
+    // 已经结算过的手牌 → 记住结算数据（连座位一起），等 user 看完再走
     let lastResult = this.state.room.lastResult;
     if (hand?.settled && hand.result && lastResult?.handId !== hand.handId) {
-      lastResult = { handId: hand.handId, result: hand.result, board: [...(hand.board ?? [])], at: Date.now() };
+      lastResult = {
+        handId: hand.handId,
+        result: hand.result,
+        board: [...(hand.board ?? [])],
+        seats: (hand.seats ?? []).map((s) => ({ ...s })),
+        at: Date.now(),
+      };
       this.showResultOverlay(hand);
     }
 
@@ -613,11 +619,25 @@ export class Store {
    */
   applyResult(payload) {
     const handId = payload?.handId ?? '';
-    const lastResult = { handId, result: payload?.result ?? null, board: [...(payload?.board ?? [])], at: Date.now() };
+    const prev = this.state.room.lastResult;
     const hand = this.state.room.snapshot?.hand;
+    // 服务端紧接着会清空 handState 并推一份 hand=null 的快照，
+    // 所以结算明细需要的座位（昵称/投入/弃牌）必须在这里固定下来，
+    // 否则浮层会因为"没有 seats"而画不出来（联机模式少结算框的原因）。
+    const seats =
+      (Array.isArray(payload?.seats) && payload.seats.length ? payload.seats : null) ??
+      (prev?.handId === handId ? prev.seats : null) ??
+      (hand?.seats ?? []);
+    const lastResult = {
+      handId,
+      result: payload?.result ?? null,
+      board: [...(payload?.board ?? [])],
+      seats: seats.map((s) => ({ ...s })),
+      at: Date.now(),
+    };
     this.pendingRequest = null;
     this.patchRoom({ lastResult, actionRequest: null });
-    this.showResultOverlay(hand ?? { ...(this.state.room.snapshot?.hand ?? {}), result: payload?.result, board: payload?.board });
+    this.showResultOverlay(hand ?? { seats, result: payload?.result, board: payload?.board });
   }
 
   /**

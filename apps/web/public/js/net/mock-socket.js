@@ -795,6 +795,9 @@ export class MockGameSocket {
 
         t.seats.delete(this.mySeat);
         this.mySeat = null;
+        // 人都走了就别再排队开下一手了
+        clearTimeout(t.nextHandTimer);
+        t.nextHandTimer = null;
         t.version += 1;
         this.broadcast();
         return { ok: true };
@@ -875,8 +878,25 @@ export class MockGameSocket {
         handId: t.hand.handId,
         result: t.hand.result,
         board: [...t.hand.board],
+        // 结算框要用座位昵称/投入，这里一并发出去（服务端同样带 seats）
+        seats: t.hand.seats.map((s) => ({
+          seat: s.seat,
+          userId: s.userId,
+          nickname: s.nickname,
+          chips: s.chips,
+          betThisStreet: s.betThisStreet,
+          totalCommitted: s.totalCommitted,
+          folded: s.folded,
+          allIn: s.allIn,
+        })),
       });
       this.stopBot();
+      // 结算后停一会儿再开下一手（与后端 SETTLE_HOLD_MS 一致），给结算框留时间
+      clearTimeout(t.nextHandTimer);
+      t.nextHandTimer = setTimeout(() => {
+        t.nextHandTimer = null;
+        this.maybeStartHand();
+      }, 2500);
       return;
     }
     this.broadcast();
@@ -1005,8 +1025,9 @@ export class MockGameSocket {
     for (const hs of t.hand.seats) {
       const s = t.seats.get(hs.seat);
       if (s) {
+        // 只同步筹码，**不重置 ready**：和后端一致，准备过一次就连续参与，
+        // 否则离线模式打一手就得回等待室点准备（牌桌界面没有准备按钮）
         s.chips = hs.chips;
-        s.ready = Boolean(s.isBot);
       }
     }
     // 按钮位轮转到下一个有人坐的座位（空位轮过去会让盲注位错乱）

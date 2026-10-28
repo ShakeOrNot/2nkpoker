@@ -40,6 +40,8 @@ function waitEvent(socket, event, predicate = () => true, timeout = 5000) {
 const TABLE_ID = 'play-smoke';
 /** 每手结算到下一手 hand:start 的间隔（毫秒）；用来守住"结算动画时间" */
 const gaps = [];
+/** game:result 里的座位信息：结算框要靠它画"谁赢谁输" */
+const resultSeatInfo = [];
 
 function setupClient(socket, name, mySeat) {
   let myVersion = 0;
@@ -82,7 +84,10 @@ function setupClient(socket, name, mySeat) {
 
   socket.on('game:result', (p) => {
     lastResultAt = Date.now();
-    console.log(`[${name}] RESULT ${JSON.stringify(p.result.payouts)}`);
+    // 结算框需要座位信息（昵称/投入/弃牌）；且不能带别人的手牌
+    const seats = Array.isArray(p.seats) ? p.seats : [];
+    resultSeatInfo.push({ count: seats.length, leaks: seats.some((s) => 'holeCards' in s) });
+    console.log(`[${name}] RESULT ${JSON.stringify(p.result.payouts)} seats=${seats.length}`);
   });
   socket.on('game:action_applied', (p) => console.log(`[${name}] saw action by seat ${p.seat}`));
 }
@@ -123,6 +128,18 @@ async function main() {
     process.exit(1);
   }
   console.log('PASS 结算后停顿足够放结算动画');
+
+  // 结算框靠 game:result.seats 画"谁赢谁输"，缺了它联机就没有结算框
+  const missingSeats = resultSeatInfo.filter((r) => r.count < 2);
+  if (missingSeats.length) {
+    console.error(`FAIL game:result 缺少座位信息（${missingSeats.length} 手），结算框画不出来`);
+    process.exit(1);
+  }
+  if (resultSeatInfo.some((r) => r.leaks)) {
+    console.error('FAIL game:result.seats 里带了 holeCards，会泄露没亮牌的玩家手牌');
+    process.exit(1);
+  }
+  console.log(`PASS 每手结算都带了座位信息（${resultSeatInfo.length} 手）`);
 
   alice.close();
   bob.close();

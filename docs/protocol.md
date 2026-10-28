@@ -111,7 +111,7 @@ type Action =
 | `hand:start` | `{ handId, buttonSeat, smallBlind, bigBlind }` | 房间 |
 | `game:action_request` | `{ handId, seat, legalActions, deadline, version }` | **只发给当前行动者** |
 | `game:action_applied` | `{ seat, action, handId, timeout? }` | 房间 |
-| `game:result` | `{ handId, result, board }` | 房间 |
+| `game:result` | `{ handId, result, board, seats }` | 房间 |
 
 要点：
 

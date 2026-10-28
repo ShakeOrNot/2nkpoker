@@ -298,6 +298,42 @@ describe('离线引擎：一手牌打到底', () => {
     expect(ctx.socket.mySeat).toBeNull();
   }, 30000);
 
+  it('准备好之后能连续打多手（结算后自动开下一手，不用再点准备）', async () => {
+    const ctx = me('h7');
+    const { seat: mySeat } = await sitAndReady(ctx, 'h7');
+
+    // 简单应答：能 check 就 check，否则 call（只为了让手牌能打完）
+    let acting = false;
+    const answer = async (req) => {
+      if (acting) return;
+      const snap = ctx.seen.snapshots.at(-1);
+      if (!snap?.hand || snap.hand.settled) return;
+      if (mySeat == null || snap.hand.currentTurnSeat !== mySeat) return;
+      acting = true;
+      try {
+        const toCall = toCallAmount(snap.hand, mySeat);
+        await request(ctx.socket, 'game:action', {
+          tableId: 'h7',
+          handId: req.handId ?? snap.hand.handId,
+          expectedVersion: snap.hand.version,
+          action: toCall > 0 ? { type: 'call' } : { type: 'check' },
+        });
+      } finally {
+        acting = false;
+      }
+    };
+    ctx.socket.on('game:action_request', (req) => void answer(req));
+
+    // 全程不点准备，只靠自动应答；等第二手自己开起来
+    const ok = await waitFor(
+      () => ctx.seen.hands.length >= 2,
+      30000,
+      () => void answer(ctx.seen.requests.at(-1) ?? {}),
+    );
+    expect(ok).toBe(true);
+    expect(ctx.seen.hands.length).toBeGreaterThanOrEqual(2);
+  }, 40000);
+
   it('版本号过期 / 不是自己回合的动作会被拒', async () => {
     const ctx = me('h5');
     await sitAndReady(ctx, 'h5');

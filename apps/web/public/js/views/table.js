@@ -477,15 +477,21 @@ export class TableView extends View {
       return;
     }
 
+    const lastSeatRows = Array.isArray(last?.seats) && last.seats.length ? last.seats : null;
     const pseudoHand = hand?.result
       ? hand
-      : { ...(this.store.state.room.snapshot?.hand ?? {}), result: last.result, board: last.board };
+      : {
+          ...(this.store.state.room.snapshot?.hand ?? {}),
+          seats: lastSeatRows ?? this.store.state.room.snapshot?.hand?.seats ?? [],
+          result: last?.result ?? null,
+          board: last?.board ?? [],
+        };
     let summary = settlement(pseudoHand);
 
     // 兜底：某些后端（协议适配模式）的结算里可能没有 hand.seats，
     // settlement() 就会返回空行。用最后一次快照的座位补上，别让浮层悄悄消失。
     if (!summary.rows.length) {
-      const seats = this.store.state.room.snapshot?.hand?.seats ?? [];
+      const seats = pseudoHand?.seats ?? [];
       const payouts = pseudoHand?.result?.payouts ?? {};
       const rows = seats.map((s) => {
         const won = Number(payouts[s.seat] ?? 0);
