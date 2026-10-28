@@ -224,7 +224,11 @@ function checkViewIntegrity(phase, requiredButtons = []) {
 
 console.log('界面装配：');
 step('4 个视图都已实例化', Object.keys(views).length === 4, Object.keys(views).join(','));
-step('启动后停在登录页', store.state.phase === 'login' && activeText().includes('用户名'), `len=${activeText().length}`);
+step(
+  '启动后停在登录页',
+  store.state.phase === 'login' && activeText().includes('昵称') && activeText().includes('口令'),
+  `len=${activeText().length}`,
+);
 
 /* --- 点击"进入牌局大厅" --- */
 const loginView = views.login;

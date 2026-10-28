@@ -2,6 +2,9 @@
   "name": "game-server",
   "version": "0.0.1",
   "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",

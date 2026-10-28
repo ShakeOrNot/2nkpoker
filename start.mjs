@@ -21,6 +21,18 @@ import { createServer } from 'node:net';
 
 const root = dirname(fileURLToPath(import.meta.url));
 
+/* ---------------- 运行环境自检 ---------------- */
+
+{
+  const [major, minor] = String(process.versions.node).split('.').map(Number);
+  if (major < 22 || (major === 22 && minor < 5)) {
+    console.error(`\n[错误] Node.js 版本太低（当前 ${process.versions.node}）`);
+    console.error('  用户库用的是内置 node:sqlite，需要 Node ≥ 22.5（推荐 24 LTS）。');
+    console.error('  升级后重试。\n');
+    process.exit(1);
+  }
+}
+
 /* ---------------- 配置 ---------------- */
 
 // 与后端共用仓库根的同一份 .env

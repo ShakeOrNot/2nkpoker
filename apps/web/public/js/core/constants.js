@@ -48,6 +48,16 @@ export const S2C = {
 export const ERROR_TEXT = {
   AUTH_FAILED: '登录已失效，请重新登录',
   AUTH_EXPIRED: '登录已过期，请重新登录',
+  AUTH_INVALID_CREDENTIALS: '昵称或口令不对',
+  AUTH_USER_EXISTS: '这个昵称已经被注册了',
+  AUTH_WEAK_PASSWORD: '口令太弱：至少 8 位，不能纯数字，也不能和昵称相同',
+  AUTH_INVALID_NICKNAME: '昵称需 2~20 个字符，只能用字母/数字/下划线/中划线/中文',
+  AUTH_LOCKED: '失败次数过多，账号已临时锁定，稍后再试',
+  AUTH_REFRESH_INVALID: '登录已失效，请重新登录',
+  AUTH_CREDENTIALS_CHANGED: '口令已变更，请重新登录',
+  AUTH_DISABLED: '账号已被禁用，请联系管理员',
+  NEED_PASSWORD: '请输入口令',
+  OFFLINE_NO_ACCOUNT: '离线练习不需要注册',
   TABLE_NOT_FOUND: '牌局不存在，可能已被解散',
   TABLE_FULL: '牌局已坐满，换个牌局试试',
   SEAT_TAKEN: '该座位已被占用',
@@ -74,7 +84,6 @@ export const ERROR_TEXT = {
   NO_HAND: '本手牌还没开始',
   ALREADY_IN_OTHER_TABLE: '你已经在另一张桌子上了，请先退出那张桌子',
 };
-
 /**
  * @param {string|undefined|null} code
  * @param {string} [fallback]

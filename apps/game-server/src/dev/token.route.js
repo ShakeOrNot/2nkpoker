@@ -1,13 +1,15 @@
+import { env } from '../env.js';
 import { signJwt } from '../auth/jwt.js';
 
 /**
- * 开发用 token 生成端点
- * 仅当 NODE_ENV !== 'production' 时挂载
+ * 开发用 token 生成端点（给脚本/联调兜底用的"无名令牌"）
+ * - 生产环境始终关闭
+ * - `ALLOW_DEV_TOKEN=0` 也可以关掉（默认开）
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerDevRoutes(app) {
-  if (process.env.NODE_ENV === 'production') {
-    app.log.info('dev routes disabled in production');
+  if (process.env.NODE_ENV === 'production' || !env.ALLOW_DEV_TOKEN) {
+    app.log.info('dev routes disabled (production or ALLOW_DEV_TOKEN=0)');
     return;
   }
 

@@ -29,7 +29,7 @@ export class LoginView extends View {
     brand.appendChild(tag('div', 'brand-mark', '♠'));
     const brandText = node('brand-text');
     brandText.appendChild(tag('h1', '', '2nk 德州扑克'));
-    brandText.appendChild(tag('p', '', '输入用户名即可开局，手机竖屏、横屏都能玩'));
+    brandText.appendChild(tag('p', '', '昵称就是登录名；注册一次，以后用昵称 + 口令进桌'));
     brand.appendChild(brandText);
     card.appendChild(brand);
 
@@ -40,16 +40,53 @@ export class LoginView extends View {
     const form = tag('form', 'login-form');
     form.autocomplete = 'off';
 
+    /* 登录 / 注册 切换 */
+    this.mode = 'login';
+    const tabs = node('tabs login-tabs');
+    this.loginTab = button({
+      label: '登录',
+      className: 'tab tab-active',
+      onClick: () => this.setMode('login'),
+    });
+    this.registerTab = button({
+      label: '注册',
+      className: 'tab',
+      onClick: () => this.setMode('register'),
+    });
+    tabs.appendChild(this.loginTab);
+    tabs.appendChild(this.registerTab);
+    form.appendChild(tabs);
+
     const field = node('field');
-    field.appendChild(tag('label', 'field-label', '用户名'));
+    field.appendChild(tag('label', 'field-label', '昵称（也是登录名）'));
     this.input = tag('input', 'input');
     this.input.type = 'text';
     this.input.placeholder = '例如：阿豪';
     this.input.maxLength = 24;
     this.input.autocapitalize = 'off';
-    this.input.autocomplete = 'nickname';
+    this.input.autocomplete = 'username';
     field.appendChild(this.input);
     form.appendChild(field);
+
+    const pwField = node('field');
+    this.passwordLabel = tag('label', 'field-label', '口令');
+    pwField.appendChild(this.passwordLabel);
+    this.passwordInput = tag('input', 'input');
+    this.passwordInput.type = 'password';
+    this.passwordInput.placeholder = '至少 8 位';
+    this.passwordInput.autocomplete = 'current-password';
+    pwField.appendChild(this.passwordInput);
+    form.appendChild(pwField);
+
+    this.confirmField = node('field');
+    this.confirmField.appendChild(tag('label', 'field-label', '再输一次口令'));
+    this.confirmInput = tag('input', 'input');
+    this.confirmInput.type = 'password';
+    this.confirmInput.placeholder = '两次要一致';
+    this.confirmInput.autocomplete = 'new-password';
+    this.confirmField.appendChild(this.confirmInput);
+    this.confirmField.classList.add('hidden');
+    form.appendChild(this.confirmField);
 
     this.loginBtn = button({
       label: '进入牌局大厅',
@@ -163,6 +200,20 @@ export class LoginView extends View {
     }
   }
 
+  /**
+   * 切登录/注册
+   * @param {'login'|'register'} mode
+   */
+  setMode(mode) {
+    this.mode = mode === 'register' ? 'register' : 'login';
+    const isRegister = this.mode === 'register';
+    this.confirmField.classList.toggle('hidden', !isRegister);
+    this.loginTab.classList.toggle('tab-active', !isRegister);
+    this.registerTab.classList.toggle('tab-active', isRegister);
+    this.passwordInput.autocomplete = isRegister ? 'new-password' : 'current-password';
+    this.render(this.store.state);
+  }
+
   async startOffline() {
     const nickname = this.input.value.trim() || '练习玩家';
     this.input.value = nickname;
@@ -172,17 +223,50 @@ export class LoginView extends View {
 
   async submit() {
     const nickname = this.input.value.trim();
+    const manualToken = this.tokenInput.value.trim();
+    const offline = Boolean(this.store.state.offline);
+
     if (!nickname) {
-      this.store.reportError('请输入用户名', { log: false });
+      this.store.reportError('请输入昵称', { log: false });
       this.input.focus();
       return;
     }
+
+    // 注册：昵称 + 口令 + 确认口令
+    if (this.mode === 'register' && !offline && !manualToken) {
+      const password = this.passwordInput.value;
+      if (password.length < 8) {
+        this.store.reportError('口令至少 8 位', { log: false });
+        this.passwordInput.focus();
+        return;
+      }
+      if (password !== this.confirmInput.value) {
+        this.store.reportError('两次输入的口令不一致', { log: false });
+        this.confirmInput.focus();
+        return;
+      }
+      setDisabled(this.loginBtn, true);
+      setText(this.loginBtn, '注册中…');
+      const res = await this.store.register(nickname, password);
+      setDisabled(this.loginBtn, false);
+      setText(this.loginBtn, '注册并进入大厅');
+      if (!res?.ok) return;
+      return;
+    }
+
+    // 登录：口令（手动 JWT / 离线 / 远端适配模式不需要）
+    if (!offline && !manualToken && !this.passwordInput.value) {
+      this.store.reportError('请输入口令', { log: false });
+      this.passwordInput.focus();
+      return;
+    }
+
     setDisabled(this.loginBtn, true);
     setText(this.loginBtn, '登录中…');
 
-    const res = await this.store.login(nickname, this.tokenInput.value.trim());
+    const res = await this.store.login(nickname, this.passwordInput.value, manualToken);
     setDisabled(this.loginBtn, false);
-    setText(this.loginBtn, '进入牌局大厅');
+    setText(this.loginBtn, this.mode === 'register' ? '注册并进入大厅' : '进入牌局大厅');
 
     // 失败提示由 store.reportError 统一弹出（顶部错误条 + toast），这里只补一句可操作建议
     if (!res?.ok && !this.store.state.offline) {
@@ -203,10 +287,17 @@ export class LoginView extends View {
 
     setText(this.offlineToggle, `默认离线练习：${state.offline ? '开' : '关'}`);
     this.tokenInput.disabled = Boolean(state.offline);
+    this.passwordInput.disabled = Boolean(state.offline);
+    this.confirmInput.disabled = Boolean(state.offline);
+    setText(
+      this.passwordLabel,
+      this.mode === 'register' ? '口令（至少 8 位）' : '口令',
+    );
     setText(
       this.offlineBtn,
       state.offline ? '离线练习（已开启，点此进入）' : '离线练习（不需要后端）',
     );
+    setText(this.loginBtn, this.mode === 'register' ? '注册并进入大厅' : '进入牌局大厅');
 
     const map = {
       unknown: ['后端状态：未检测', 'status-idle'],

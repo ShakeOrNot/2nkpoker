@@ -17,7 +17,7 @@
  *   /                             → apps/web/public 下的静态文件
  *   /api/*                        → 后端（自动去掉 /api 前缀）
  *   /socket.io/*                  → 后端（含 WebSocket 升级）
- *   /tables*、/dev/*、/health、/ready → 后端（原样转发）
+ *   /auth/*、/tables*、/dev/*、/health、/ready → 后端（原样转发）
  */
 
 import { createServer, request as httpRequest } from 'node:http';
@@ -27,6 +27,7 @@ import { existsSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { networkInterfaces } from 'node:os';
+import { shouldProxy } from './proxy-paths.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = resolve(here, 'public');
@@ -143,9 +144,9 @@ function proxyUpgrade(req, socket, head) {
 const server = createServer(async (req, res) => {
   const urlPath = (req.url ?? '/').split('?')[0];
 
-    const PROXY_PATHS = ['/api/', '/socket.io', '/health', '/ready', '/dev/', '/tables'];
-  if (!NO_PROXY && PROXY_PATHS.some((p) => urlPath.startsWith(p))) {
+  if (!NO_PROXY && shouldProxy(urlPath)) {
     // /api/* 转发时会去掉前缀；/socket.io/* 原样转发（HTTP 轮询与 WebSocket 升级都要）
+    // /auth/* 也要转发：否则登录/注册会命中静态服务器变成 404（"demo 号上不去"的根因）
     proxyHttp(req, res);
     return;
   }
@@ -233,7 +234,7 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`proxy      : ${TARGET.origin}`);
     console.log('  /api/*       -> backend (the /api prefix is stripped)');
     console.log('  /socket.io/* -> backend (HTTP polling + WebSocket upgrade)');
-    console.log('  /tables, /dev/*, /health, /ready -> backend');
+    console.log('  /auth/*, /tables, /dev/*, /health, /ready -> backend');
   }
   console.log('phone: same Wi-Fi, replace localhost with this PC LAN IP');
 });

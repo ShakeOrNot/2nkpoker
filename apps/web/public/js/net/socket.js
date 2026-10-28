@@ -100,6 +100,21 @@ export class GameSocket {
   }
 
   /**
+   * 换一个新的 access token（自动续期后、重连前调用）
+   * @param {string} token
+   */
+  updateAuth(token) {
+    this.token = token;
+    if (this.socket) {
+      try {
+        this.socket.auth = { ...(this.socket.auth ?? {}), token };
+      } catch {
+        /* 忽略 */
+      }
+    }
+  }
+
+  /**
    * 建立连接
    * @param {{ wsBase: string, token: string }} options
    * @returns {Promise<{ ok: boolean, code?: string, message?: string }>}

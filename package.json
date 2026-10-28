@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
     "test": "pnpm -r test",
     "dev:server": "pnpm -F game-server dev"

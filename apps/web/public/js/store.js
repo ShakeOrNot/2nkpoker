@@ -113,6 +113,8 @@ export class Store {
     this.autoSitWanted = false;
     /** 重连后重新订阅房间是否正在进行（防止重复 join） */
     this.rejoining = false;
+    /** access token 自动续期定时器 */
+    this.refreshTimer = null;
   }
 
   /* ------------------------------------------------------------------ *
@@ -289,52 +291,134 @@ export class Store {
   }
 
   /**
-   * 登录（拿 token 并存下来）
+   * 登录（昵称即登录名 + 口令）；成功后存 session 并自动续期
    * @param {string} nickname
-   * @param {string} [manualToken] 生产环境可直接粘贴 JWT
+   * @param {string} [password]
+   * @param {string} [manualToken] 生产环境可直接粘贴 JWT（跳过口令）
    * @returns {Promise<{ ok: boolean, code?: string, message?: string }>}
    */
-  async login(nickname, manualToken = '') {
+  async login(nickname, password = '', manualToken = '') {
     const name = String(nickname ?? '').trim();
     if (!name) return { ok: false, code: 'NEED_USERNAME' };
     this.patch({ busy: true });
 
     let session;
     if (manualToken) {
-      session = { token: manualToken.trim(), userId: name, nickname: name, expiresAt: 0 };
+      session = { token: manualToken.trim(), userId: name, nickname: name, expiresAt: 0, refreshToken: '' };
     } else if (this.state.offline) {
-      session = { token: 'offline', userId: `local_${name}`, nickname: name, expiresAt: Date.now() + TOKEN_TTL_MS };
+      session = { token: 'offline', userId: `local_${name}`, nickname: name, expiresAt: Date.now() + TOKEN_TTL_MS, refreshToken: '' };
     } else if (this.usesRemoteAdapter()) {
       // 适配模式下后端不做鉴权：只用昵称做身份，不需要 token
-      session = { token: '', userId: name, nickname: name, expiresAt: 0 };
+      session = { token: '', userId: name, nickname: name, expiresAt: 0, refreshToken: '' };
       this.log('目标服务器不需要登录，直接用昵称进入（协议适配模式）');
     } else {
-      const res = await api.login(name);
+      const res = await api.login(name, password);
       if (!res.ok) {
         this.patch({ busy: false });
         return { ok: false, code: res.code, message: this.reportError(res.message ?? errorText(res.code, '登录失败'), { code: res.code, log: false }) };
       }
       session = {
         token: res.token ?? '',
+        refreshToken: res.refreshToken ?? '',
         userId: res.userId ?? name,
         nickname: res.nickname ?? name,
-        expiresAt: Date.now() + TOKEN_TTL_MS,
+        expiresAt: res.expiresAt ?? Date.now() + TOKEN_TTL_MS,
       };
     }
 
-    writeStore(STORAGE_KEYS.session, session);
-    this.patch({ session, phase: 'lobby', busy: false });
-    this.log(`已登录：${session.nickname}`);
-
+    this.installSession(session);
+    this.patch({ busy: false });
     const room = this.state.room.tableId || roomFromQuery();
     if (room) await this.joinRoom(room);
     return { ok: true };
   }
 
   /**
+   * 注册账号（成功后直接进入大厅）
+   * @param {string} nickname
+   * @param {string} password
+   * @returns {Promise<{ ok: boolean, code?: string, message?: string }>}
+   */
+  async register(nickname, password) {
+    const name = String(nickname ?? '').trim();
+    if (!name) return { ok: false, code: 'NEED_USERNAME' };
+    if (this.state.offline) return { ok: false, code: 'OFFLINE_NO_ACCOUNT', message: '离线练习不需要注册' };
+    this.patch({ busy: true });
+    const res = await api.register(name, password);
+    if (!res.ok) {
+      this.patch({ busy: false });
+      return { ok: false, code: res.code, message: this.reportError(res.message ?? errorText(res.code, '注册失败'), { code: res.code, log: false }) };
+    }
+    this.installSession({
+      token: res.token ?? '',
+      refreshToken: res.refreshToken ?? '',
+      userId: res.userId ?? name,
+      nickname: res.nickname ?? name,
+      expiresAt: res.expiresAt ?? Date.now() + TOKEN_TTL_MS,
+    });
+    this.patch({ busy: false });
+    this.log(`注册成功，欢迎 ${name}`);
+    return { ok: true };
+  }
+
+  /**
+   * 落库 + 切大厅 + 排续期
+   * @param {{ token: string, refreshToken?: string, userId: string, nickname: string, expiresAt: number }} session
+   */
+  installSession(session) {
+    writeStore(STORAGE_KEYS.session, session);
+    this.patch({ session, phase: 'lobby', busy: false });
+    this.log(`已登录：${session.nickname}`);
+    this.scheduleTokenRefresh();
+  }
+
+  /** 到期前 60 秒自动续期（只有带 refreshToken 的会话需要） */
+  scheduleTokenRefresh() {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
+    const session = this.state.session;
+    if (!session?.refreshToken) return;
+    const delay = Math.max(5000, Number(session.expiresAt ?? 0) - Date.now() - TOKEN_REFRESH_MARGIN_MS);
+    this.refreshTimer = setTimeout(() => void this.refreshAccessToken(), delay);
+  }
+
+  /**
+   * 用刷新令牌换新的 access token；失败就回登录页
+   * @returns {Promise<boolean>}
+   */
+  async refreshAccessToken() {
+    const session = this.state.session;
+    if (!session?.refreshToken) return false;
+    const res = await api.refresh(session.refreshToken);
+    if (!res.ok) {
+      // 刷新令牌作废/过期：只能重新登录
+      this.logout('登录已过期，请重新登录');
+      return false;
+    }
+    const next = {
+      ...session,
+      token: res.token,
+      refreshToken: res.refreshToken || session.refreshToken,
+      expiresAt: res.expiresAt,
+      nickname: res.nickname || session.nickname,
+      userId: res.userId || session.userId,
+    };
+    writeStore(STORAGE_KEYS.session, next);
+    this.patch({ session: next });
+    // 重连时 socket 需要新 token
+    this.socket?.updateAuth?.(next.token);
+    this.scheduleTokenRefresh();
+    return true;
+  }
+
+  /**
    * @param {string} [message]
    */
   logout(message = '') {
+    const refreshToken = this.state.session?.refreshToken;
+    if (refreshToken) void api.logout(refreshToken);
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
     clearStore(STORAGE_KEYS.session);
     this.closeSocket();
     this.patch({
@@ -373,6 +457,17 @@ export class Store {
     if (!session) return { ok: false, code: 'AUTH_FAILED' };
     if (this.socket && this.state.connection === 'online') return { ok: true };
     if (this.socket && this.state.connection === 'connecting') return { ok: false, code: 'NETWORK', message: '正在连接…' };
+
+    // access token 快过期了就先续期，否则握手会被拒
+    if (
+      session.refreshToken &&
+      session.expiresAt &&
+      session.expiresAt - Date.now() < TOKEN_REFRESH_MARGIN_MS
+    ) {
+      const ok = await this.refreshAccessToken();
+      if (!ok) return { ok: false, code: 'AUTH_EXPIRED', message: '登录已过期，请重新登录' };
+    }
+    const active = this.state.session ?? session;
 
     this.patch({ connection: 'connecting' });
 
@@ -424,7 +519,7 @@ export class Store {
 
     const res = await transport.connect({
       wsBase: this.state.serverConfig.wsBase,
-      token: session.token,
+      token: active.token,
     });
 
     if (!res.ok) {
@@ -483,6 +578,8 @@ export class Store {
     this.socket?.close?.();
     this.socket = null;
     if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
     this.pendingRequest = null;
   }
 

@@ -16,12 +16,24 @@
 
 ## 2. 鉴权
 
-- 算法：HS256；校验在 `apps/game-server/src/auth/jwt.js`
-- 传输：**只有 Socket.IO 握手**用 `handshake.auth.token`；HTTP 接口目前不校验 JWT
-- payload：`{ sub, nickname, role, iss, aud, exp }`
-- `JWT_ISSUER` / `JWT_AUDIENCE` 默认 `2nkpoker` / `2nkpoker-web`，有效期 15 分钟
-- 开发环境：`POST /dev/token` 由 game-server 自己签发（`NODE_ENV=production` 时不挂载该路由）
-- 生产环境：由 auth 服务签发，game-server 只校验
+### 2.1 账号口令
+
+- **昵称即登录名**：注册时昵称唯一（ASCII 大小写不敏感），2~20 个字符，只能用字母/数字/`_`/`-`/中文
+- 口令用 `scrypt`（N=2^15, r=8, p=1，随机 16B salt）哈希后存 SQLite，**不存明文**
+- 用户库：`var/2nkpoker.db`（`AUTH_DB_PATH` 可改，`var/` 已被 gitignore）
+- 口令策略：≥8 位、≤72 位、不能纯数字、不能和昵称相同
+- 失败限制：同账号 5 次失败锁 5 分钟；同 IP 5 分钟内最多 20 次失败（内存实现，单进程）
+- 账号被禁用时登录返回 `AUTH_DISABLED`
+
+### 2.2 令牌
+
+- access token：JWT HS256，**15 分钟**，payload `{ sub, nickname, role, tv, iss, aud, exp }`
+  - `sub` = 用户 id（uuid）；`tv` = 账号 token_version（改密/重置后 +1，旧令牌立即失效）
+- refresh token：32 字节随机串，DB 只存 sha256，**7 天**；每次刷新轮换，**旧令牌用过再来直接撤销该账号全部刷新令牌**（盗用检测）
+- 传输：Socket.IO 握手用 `handshake.auth.token`（access token）；HTTP 鉴权接口用 `Authorization: Bearer <access>`
+- 校验：`auth/jwt.js`（签名/签发方/受众/过期）；`/auth/me` 与 `/auth/refresh` 额外校验 `tv` 与禁用状态
+- 改密/管理员重置：`token_version + 1` + 撤销全部刷新令牌 → 其它设备需重新登录
+- 开发环境：`POST /dev/token` 仍可用（`NODE_ENV=production` 或 `ALLOW_DEV_TOKEN=0` 时关闭），签"无名令牌"给脚本/联调用
 - 校验失败：连接被拒绝，客户端收到 `connect_error.message === "AUTH_FAILED"`
 
 ## 3. HTTP 接口
@@ -30,10 +42,30 @@
 | :--- | :--- | :--- |
 | GET | `/health` | `{ ok: true, service: 'game-server' }` |
 | GET | `/ready` | `{ ok: true }` |
+| POST | `/auth/register` | `{ nickname, password }` → 会话（见下） |
+| POST | `/auth/login` | `{ nickname, password }` → 会话 |
+| POST | `/auth/refresh` | `{ refreshToken }` → 新的一对令牌（旧 refresh 作废） |
+| POST | `/auth/logout` | `{ refreshToken }` → `{ ok: true }` |
+| GET | `/auth/me` | `Authorization: Bearer <access>` → `{ ok, user }` |
+| POST | `/auth/change-password` | `{ oldPassword, newPassword }`（需 Bearer）→ 新会话 |
 | GET | `/tables` | `{ tables: TableSummary[] }`，新建的在前；空桌不列出（`POST /tables` 显式创建过的除外） |
 | GET | `/tables/:tableId` | `{ ok: true, table: TableSummary }`；不存在时 404 + `{ ok: false, code: 'TABLE_NOT_FOUND' }` |
 | POST | `/tables` | 创建/取回牌局，见下 |
 | POST | `/dev/token` | 仅开发环境：`{ userId?, nickname? }` → `{ ok, token, userId, nickname }` |
+
+会话响应（register/login/refresh/change-password 成功时）：
+
+```ts
+{
+  ok: true,
+  accessToken: string,      // JWT，15 分钟
+  refreshToken: string,     // 7 天，轮换使用
+  expiresAt: number,        // access 过期时间（毫秒）
+  user: { id: string, nickname: string, role: 'user'|'admin', createdAt: number, lastLoginAt: number|null }
+}
+```
+
+失败统一 `{ ok: false, code, message?, retryAfterMs? }`，HTTP 状态：400 参数/弱口令、401 凭据错误/令牌失效、403 禁用、409 昵称已存在、429 锁定/限流。
 
 `POST /tables` 请求体：
 
@@ -184,7 +216,17 @@ type HandResult = {
 
 | 码 | 场景 | 前端文案（`core/constants.js`） |
 | :--- | :--- | :--- |
-| `AUTH_FAILED` | 握手 token 缺失/非法/过期 | 登录已失效，请重新登录 |
+| `AUTH_FAILED` | 握手 token 缺失/非法/过期；HTTP 鉴权失败 | 登录已失效，请重新登录 |
+| `AUTH_EXPIRED` | access token 过期 | 登录已过期，请重新登录 |
+| `AUTH_INVALID_CREDENTIALS` | 昵称不存在 / 口令不对（统一文案，不暴露区别） | 昵称或口令不对 |
+| `AUTH_USER_EXISTS` | 注册时昵称已被占用 | 这个昵称已经被注册了 |
+| `AUTH_WEAK_PASSWORD` | 口令不满足策略 / 新旧口令相同 | 口令太弱：至少 8 位，不能纯数字，也不能和昵称相同 |
+| `AUTH_INVALID_NICKNAME` | 昵称不符合规则 | 昵称需 2~20 个字符，只能用字母/数字/下划线/中划线/中文 |
+| `AUTH_LOCKED` | 失败次数过多被临时锁定（429） | 失败次数过多，账号已临时锁定，稍后再试 |
+| `AUTH_REFRESH_INVALID` | 刷新令牌无效/过期/被轮换作废 | 登录已失效，请重新登录 |
+| `AUTH_CREDENTIALS_CHANGED` | 口令已变更，旧 access token 失效 | 口令已变更，请重新登录 |
+| `AUTH_DISABLED` | 账号被管理员禁用 | 账号已被禁用，请联系管理员 |
+| `RATE_LIMITED` | 同 IP 失败过于频繁（429） | 操作太快了，稍等一下 |
 | `INVALID_PAYLOAD` | zod 校验失败（字段缺失/越界） | 请求格式不对，请刷新页面重试 |
 | `TABLE_NOT_FOUND` | 牌局不存在 | 牌局不存在，可能已被解散 |
 | `TABLE_FULL` | 没有空座位 | 牌局已坐满，换个牌局试试 |
@@ -204,8 +246,9 @@ type HandResult = {
 
 说明：
 
-- `RATE_LIMITED`、`INTERNAL_ERROR` 目前**服务端不下发**（前端文案保留，方便将来限流）
+- `INTERNAL_ERROR` 目前**服务端不下发**（前端文案保留）
 - 引擎的 `ActionError` 直接当作 `code` 透传，message 可能为空
+- 登录失败限流/锁定的参数见环境变量 `AUTH_MAX_ATTEMPTS` / `AUTH_LOCK_MS` / `AUTH_IP_MAX_ATTEMPTS`
 
 ## 6. 规则要点
 

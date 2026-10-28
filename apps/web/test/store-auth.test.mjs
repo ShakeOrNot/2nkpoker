@@ -1,0 +1,156 @@
+import { describe, it, expect } from 'vitest';
+import { Store } from '../public/js/store.js';
+
+const realFetch = globalThis.fetch;
+
+/** @param {any} body @param {number} [status] */
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
+function sessionBody(overrides = {}) {
+  const rand = Math.random().toString(36).slice(2);
+  return {
+    ok: true,
+    accessToken: `access-${rand}-${rand}`,
+    refreshToken: `refresh-${rand}-${rand}`,
+    expiresAt: Date.now() + 900000,
+    user: { id: 'u1', nickname: '阿豪', role: 'user' },
+    ...overrides,
+  };
+}
+
+/**
+ * 用可控的 fetch 跑一段逻辑，结束后恢复
+ * @param {(url: string, init: any) => any} handler
+ * @param {() => Promise<void>} fn
+ */
+async function withFetch(handler, fn) {
+  /** @type {any[]} */
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: init?.body, headers: init?.headers });
+    return handler(String(url), init);
+  };
+  try {
+    await fn();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  return calls;
+}
+
+/** 每次测试一个干净的 store（localStorage 在同一个进程里是共享的） */
+function freshStore() {
+  globalThis.localStorage.removeItem('2nk.session');
+  globalThis.localStorage.removeItem('2nk.offline');
+  const store = new Store();
+  store.state.offline = false;
+  store.state.phase = 'login';
+  store.state.session = null;
+  return store;
+}
+
+describe('账密登录（store ↔ HTTP）', () => {
+  it('login 成功：把会话装进 store 并进大厅', async () => {
+    const calls = await withFetch(
+      () => jsonResponse(sessionBody()),
+      async () => {
+        const store = freshStore();
+        const res = await store.login('阿豪', 'poker-2026');
+        expect(res.ok).toBe(true);
+        expect(store.state.phase).toBe('lobby');
+        expect(String(store.state.session?.token).startsWith('access-')).toBe(true);
+        expect(String(store.state.session?.refreshToken).startsWith('refresh-')).toBe(true);
+        expect(store.state.session?.nickname).toBe('阿豪');
+      },
+    );
+    expect(calls[0].url.endsWith('/auth/login')).toBe(true);
+    expect(JSON.parse(calls[0].body).nickname).toBe('阿豪');
+    expect(JSON.parse(calls[0].body).password).toBe('poker-2026');
+  });
+
+  it('login 失败：保留登录页并带出错误码', async () => {
+    await withFetch(
+      () => jsonResponse({ ok: false, code: 'AUTH_INVALID_CREDENTIALS', message: '昵称或口令不对' }, 401),
+      async () => {
+        const store = freshStore();
+        const res = await store.login('阿豪', 'wrong-password');
+        expect(res.ok).toBe(false);
+        expect(res.code).toBe('AUTH_INVALID_CREDENTIALS');
+        expect(store.state.phase).toBe('login');
+        expect(store.state.session).toBeNull();
+      },
+    );
+  });
+
+  it('register 成功也会直接进大厅', async () => {
+    const calls = await withFetch(
+      () => jsonResponse(sessionBody({ user: { id: 'u2', nickname: '新人', role: 'user' } }), 201),
+      async () => {
+        const store = freshStore();
+        const res = await store.register('新人', 'poker-2026');
+        expect(res.ok).toBe(true);
+        expect(store.state.phase).toBe('lobby');
+        expect(store.state.session?.nickname).toBe('新人');
+      },
+    );
+    expect(calls[0].url.endsWith('/auth/register')).toBe(true);
+  });
+
+  it('refreshAccessToken 换新令牌；失败则回登录页', async () => {
+    const store = freshStore();
+    store.installSession({
+      token: 'old-access-token-value',
+      refreshToken: 'old-refresh-token-value',
+      userId: 'u1',
+      nickname: '阿豪',
+      expiresAt: Date.now() + 60000,
+    });
+
+    let body = sessionBody({ accessToken: 'new-access-token-value', refreshToken: 'new-refresh-token-value' });
+    await withFetch(
+      () => jsonResponse(body),
+      async () => {
+        const ok = await store.refreshAccessToken();
+        expect(ok).toBe(true);
+        expect(store.state.session?.token).toBe('new-access-token-value');
+        expect(store.state.session?.refreshToken).toBe('new-refresh-token-value');
+      },
+    );
+
+    // 刷新令牌失效 → 直接登出回登录页
+    await withFetch(
+      () => jsonResponse({ ok: false, code: 'AUTH_REFRESH_INVALID' }, 401),
+      async () => {
+        const ok = await store.refreshAccessToken();
+        expect(ok).toBe(false);
+        expect(store.state.phase).toBe('login');
+        expect(store.state.session).toBeNull();
+      },
+    );
+  });
+
+  it('logout 会通知服务端吊销刷新令牌并清本地会话', async () => {
+    const store = freshStore();
+    store.installSession({
+      token: 'access-token-value',
+      refreshToken: 'refresh-token-value',
+      userId: 'u1',
+      nickname: '阿豪',
+      expiresAt: Date.now() + 60000,
+    });
+
+    const calls = await withFetch(
+      () => jsonResponse({ ok: true }),
+      async () => {
+        store.logout();
+        await new Promise((r) => setTimeout(r, 30));
+      },
+    );
+
+    expect(calls.some((c) => c.url.endsWith('/auth/logout'))).toBe(true);
+    expect(store.state.session).toBeNull();
+    expect(store.state.phase).toBe('login');
+  });
+});

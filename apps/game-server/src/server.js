@@ -8,6 +8,13 @@ import { Server } from 'socket.io';
 import { registerGameNamespace } from './ws/game.namespace.js';
 import { registerDevRoutes } from './dev/token.route.js';
 import { registerTablesRoutes } from './routes/tables.route.js';
+import { registerAuthRoutes } from './routes/auth.route.js';
+import { initDb } from './users/db.js';
+import { cleanupExpiredTokens } from './auth/session.js';
+
+// 用户库（SQLite）：启动即建表/迁移，顺手清掉过期刷新令牌
+initDb(env.AUTH_DB_PATH);
+cleanupExpiredTokens();
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true, credentials: true });
@@ -16,6 +23,7 @@ await app.register(helmet);
 app.get('/health', async () => ({ ok: true, service: 'game-server' }));
 app.get('/ready', async () => ({ ok: true }));
 
+registerAuthRoutes(app);
 registerDevRoutes(app);
 registerTablesRoutes(app);
 
@@ -27,3 +35,4 @@ const io = new Server(app.server, {
 registerGameNamespace(io);
 
 app.log.info(`game-server listening on ${env.PORT}`);
+app.log.info(`auth db: ${env.AUTH_DB_PATH}`);

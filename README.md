@@ -43,7 +43,7 @@
 
 ### 1. 环境要求
 
-- **Node.js** ≥ 20.12（推荐 20/22/24 LTS；后端用 `process.loadEnvFile` 读 `.env`）
+- **Node.js** ≥ 22.5（推荐 24 LTS）：用户库用内置 `node:sqlite`，后端用 `process.loadEnvFile` 读 `.env`
 - **pnpm** ≥ 9
 
 ### 2. 安装与配置
@@ -64,6 +64,12 @@ cp .env.example .env      # Windows: copy .env.example .env
 | `ACTION_TIMEOUT_MS` | 30000 | 轮到某人行动的超时，超时自动过牌/弃牌 |
 | `RECONNECT_GRACE_MS` | 30000 | 掉线后保留座位的宽限期 |
 | `SETTLE_HOLD_MS` | 2500 | 一手结束后停多久再开下一手（放结算动画） |
+| `AUTH_DB_PATH` | `var/2nkpoker.db` | SQLite 用户库位置（默认仓库根 `var/`，已 gitignore） |
+| `ACCESS_TTL_MS` | 900000 | access token 有效期（15 分钟） |
+| `REFRESH_TTL_MS` | 604800000 | 刷新令牌有效期（7 天） |
+| `ALLOW_DEV_TOKEN` | 1 | 是否挂载开发用的 `POST /dev/token`（生产始终关闭） |
+| `AUTH_MAX_ATTEMPTS` / `AUTH_LOCK_MS` | 5 / 300000 | 同账号连续失败几次锁多久 |
+| `AUTH_WINDOW_MS` / `AUTH_IP_MAX_ATTEMPTS` | 300000 / 20 | 同 IP 限流窗口与上限 |
 
 ### 3. 启动
 
@@ -76,13 +82,27 @@ node start.mjs --watch        # 后端改代码自动重启
 
 然后打开 `http://127.0.0.1:8080`。
 
-- **一个人试玩**：登录页直接点「离线练习（不需要后端）」，或进大厅创建牌局。
-- **两个人试玩**：开一个**普通窗口** + 一个**无痕窗口**，各登录一次。普通窗口的多个标签共用同一登录态，坐不成两个玩家。
-- **手机试玩**：同一 Wi-Fi，用启动时打印的「同一 Wi-Fi」地址。
+- **第一次来**：登录页切到「注册」，填昵称 + 口令（昵称就是登录名，2~20 字符）
+- **一个人试玩**：登录页直接点「离线练习（不需要后端）」，或注册后进大厅创建牌局
+- **两个人试玩**：开一个**普通窗口** + 一个**无痕窗口**，各注册/登录一个账号。普通窗口的多个标签共用同一登录态，坐不成两个玩家
+- **手机试玩**：同一 Wi-Fi，用启动时打印的「同一 Wi-Fi」地址
 
 > 前端是原生 ES 模块，**必须通过 http 打开**（`file://` 会被浏览器拒绝）。`start.mjs` 就是干这个的。
+> 用户库是 SQLite 单文件（`var/2nkpoker.db`）；删掉它就等于清空所有账号。
 
-### 4. 分进程调试（可选）
+### 4. 账号与口令
+
+- 口令用 scrypt 哈希存储，登录失败有锁定（同账号 5 次 / 5 分钟）
+- 改口令入口：`POST /auth/change-password`（前端后续补界面）；忘记口令用运维脚本重置：
+
+```bash
+node apps/game-server/scripts/reset-password.mjs <昵称> <新口令>
+node apps/game-server/scripts/reset-password.mjs --make-admin <昵称>
+node apps/game-server/scripts/reset-password.mjs --disable <昵称>
+node apps/game-server/scripts/reset-password.mjs --list
+```
+
+### 5. 分进程调试（可选）
 
 需要看两边日志时，开两个终端：
 
@@ -104,6 +124,7 @@ node apps/web/test/run-tests.mjs
 需要后端在跑的冒烟脚本：
 
 ```bash
+node scripts/auth-smoke.js          # 注册 → 登录 → 刷新 → 改密 → 登出（真 HTTP）
 node scripts/play-smoke.js          # 两人真实打完一手
 node scripts/table-smoke.js         # 入座/站起/快照同步
 node scripts/seat-smoke.js          # 换座 + 手牌中离桌（本手结束后生效）

@@ -12,6 +12,8 @@ import { z } from 'zod';
  * 优先级：真实环境变量 > .env（loadEnvFile 不会覆盖已存在的变量）。
  */
 const envFilePath = fileURLToPath(new URL('../../../.env', import.meta.url));
+/** 默认用户库：仓库根/var/2nkpoker.db */
+const defaultDbPath = fileURLToPath(new URL('../../../var/2nkpoker.db', import.meta.url));
 
 if (existsSync(envFilePath) && typeof process.loadEnvFile === 'function') {
   process.loadEnvFile(envFilePath);
@@ -22,6 +24,20 @@ const schema = z.object({
   JWT_SECRET: z.string().min(1),
   JWT_ISSUER: z.string().default('2nkpoker'),
   JWT_AUDIENCE: z.string().default('2nkpoker-web'),
+
+  /* ---------- 账密系统 ---------- */
+  AUTH_DB_PATH: z.string().default(defaultDbPath),
+  ACCESS_TTL_MS: z.coerce.number().default(15 * 60 * 1000),
+  REFRESH_TTL_MS: z.coerce.number().default(7 * 24 * 60 * 60 * 1000),
+  /** 开发用 POST /dev/token 开关（生产环境始终关闭） */
+  ALLOW_DEV_TOKEN: z
+    .string()
+    .default('1')
+    .transform((v) => !['0', 'false', 'no', 'off'].includes(v.toLowerCase())),
+  AUTH_MAX_ATTEMPTS: z.coerce.number().default(5),
+  AUTH_LOCK_MS: z.coerce.number().default(5 * 60 * 1000),
+  AUTH_WINDOW_MS: z.coerce.number().default(5 * 60 * 1000),
+  AUTH_IP_MAX_ATTEMPTS: z.coerce.number().default(20),
 });
 
 const parsed = schema.safeParse(process.env);

@@ -27,3 +27,5 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea
+# 本地数据（SQLite 用户库等）
+var/
