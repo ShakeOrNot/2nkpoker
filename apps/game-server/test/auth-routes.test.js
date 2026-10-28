@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { initDb } from '../src/users/db.js';
 import { registerAuthRoutes } from '../src/routes/auth.route.js';
 import { resetRateLimit } from '../src/auth/ratelimit.js';
+import { setRole } from '../src/users/userStore.js';
 
 /** 每个用例一个干净的内存库 + 一个只挂了 auth 路由的 Fastify */
 async function makeApp() {
@@ -173,5 +174,69 @@ describe('鉴权失败', () => {
     const app = await makeApp();
     expect((await get(app, '/auth/me')).statusCode).toBe(401);
     expect((await get(app, '/auth/me', 'not-a-jwt')).statusCode).toBe(401);
+  });
+});
+
+describe('管理员重置口令', () => {
+  it('普通账号调用被拒（403 FORBIDDEN）', async () => {
+    const app = await makeApp();
+    const reg = (await post(app, '/auth/register', { nickname: 'user1', password: PASSWORD })).json();
+    const res = await post(
+      app,
+      '/auth/admin/reset-password',
+      { nickname: 'user1', newPassword: 'another-2026' },
+      reg.accessToken,
+    );
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('FORBIDDEN');
+  });
+
+  it('管理员重置成功：目标旧令牌失效、新口令可登录', async () => {
+    const app = await makeApp();
+    const boss = (await post(app, '/auth/register', { nickname: 'boss', password: PASSWORD })).json();
+    setRole(boss.user.id, 'admin'); // 模拟运维用 CLI 提权
+    const target = (await post(app, '/auth/register', { nickname: 'target', password: PASSWORD })).json();
+
+    const res = await post(
+      app,
+      '/auth/admin/reset-password',
+      { nickname: 'target', newPassword: 'reset-2026' },
+      boss.accessToken,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    // 目标原来的 access 立刻失效
+    const oldMe = await get(app, '/auth/me', target.accessToken);
+    expect(oldMe.statusCode).toBe(401);
+    expect(oldMe.json().code).toBe('AUTH_CREDENTIALS_CHANGED');
+
+    // 旧口令登不上，新口令可以
+    expect((await post(app, '/auth/login', { nickname: 'target', password: PASSWORD })).statusCode).toBe(401);
+    expect((await post(app, '/auth/login', { nickname: 'target', password: 'reset-2026' })).statusCode).toBe(200);
+  });
+
+  it('目标不存在 404 USER_NOT_FOUND；新口令太弱 400', async () => {
+    const app = await makeApp();
+    const boss = (await post(app, '/auth/register', { nickname: 'boss2', password: PASSWORD })).json();
+    setRole(boss.user.id, 'admin');
+
+    const missing = await post(
+      app,
+      '/auth/admin/reset-password',
+      { nickname: 'nobody', newPassword: 'reset-2026' },
+      boss.accessToken,
+    );
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe('USER_NOT_FOUND');
+
+    const weak = await post(
+      app,
+      '/auth/admin/reset-password',
+      { nickname: 'boss2', newPassword: '123' },
+      boss.accessToken,
+    );
+    expect(weak.statusCode).toBe(400);
+    expect(weak.json().code).toBe('AUTH_WEAK_PASSWORD');
   });
 });

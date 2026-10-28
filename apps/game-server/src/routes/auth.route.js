@@ -44,6 +44,11 @@ const ChangePasswordSchema = z.object({
   newPassword: z.string().min(1).max(200),
 });
 
+const AdminResetSchema = z.object({
+  nickname: z.string().min(1).max(40),
+  newPassword: z.string().min(1).max(200),
+});
+
 /**
  * @param {any} user 数据库行
  */
@@ -289,5 +294,46 @@ export function registerAuthRoutes(app) {
 
     const fresh = findById(user.id);
     return issueSession(fresh);
+  });
+
+  /* ---------------- 管理员重置口令（忘记口令时用；也可以走 CLI） ---------------- */
+  app.post('/auth/admin/reset-password', async (req, reply) => {
+    const admin = requireUser(req, reply);
+    if (!admin) return reply;
+    if (admin.role !== 'admin') {
+      writeAudit({ action: 'admin-reset', userId: admin.id, nickname: admin.nickname, ip: clientIp(req), ua: req.headers['user-agent'], ok: false });
+      reply.code(403);
+      return { ok: false, code: 'FORBIDDEN', message: '只有管理员可以重置口令' };
+    }
+
+    const parsed = AdminResetSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      reply.code(400);
+      return { ok: false, code: 'INVALID_PAYLOAD', message: '要指定昵称和新口令' };
+    }
+    const nickname = String(parsed.data.nickname).trim();
+    const target = findByNickname(nickname);
+    if (!target) {
+      reply.code(404);
+      return { ok: false, code: 'USER_NOT_FOUND', message: '没有这个账号' };
+    }
+    const policy = checkPasswordPolicy(parsed.data.newPassword, target.nickname);
+    if (!policy.ok) {
+      reply.code(400);
+      return { ok: false, code: 'AUTH_WEAK_PASSWORD', message: policy.reason };
+    }
+
+    const newHash = await hashPassword(parsed.data.newPassword);
+    updatePassword(target.id, newHash); // token_version + 1
+    revokeAllForUser(target.id); // 目标账号所有设备立即失效
+    writeAudit({
+      action: 'admin-reset',
+      userId: admin.id,
+      nickname: target.nickname,
+      ip: clientIp(req),
+      ua: req.headers['user-agent'],
+      ok: true,
+    });
+    return { ok: true };
   });
 }

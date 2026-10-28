@@ -93,11 +93,19 @@ node start.mjs --watch        # 后端改代码自动重启
 ### 4. 账号与口令
 
 - 口令用 scrypt 哈希存储，登录失败有锁定（同账号 5 次 / 5 分钟）
-- 改口令入口：`POST /auth/change-password`（前端后续补界面）；忘记口令用运维脚本重置：
+- **改口令**：大厅右上角「改口令」（改完其它设备立即失效，当前页面不受影响）
+- **登录过期**：顶部出现黄色横幅，牌桌/房间都还在，点「重新登录」才回登录页
+- **管理员重置**：先提权，再调接口或 CLI
 
 ```bash
-node apps/game-server/scripts/reset-password.mjs <昵称> <新口令>
+# 提权（运维脚本）
 node apps/game-server/scripts/reset-password.mjs --make-admin <昵称>
+# 管理员令牌调接口
+curl -X POST http://127.0.0.1:3001/auth/admin/reset-password \
+  -H "Authorization: Bearer <admin-access-token>" -H "Content-Type: application/json" \
+  -d '{"nickname":"忘了口令的人","newPassword":"new-poker-2026"}'
+# 直接重置 / 禁用 / 查看
+node apps/game-server/scripts/reset-password.mjs <昵称> <新口令>
 node apps/game-server/scripts/reset-password.mjs --disable <昵称>
 node apps/game-server/scripts/reset-password.mjs --list
 ```

@@ -78,6 +78,19 @@ export function tag(tagName, className = '', text = '') {
 }
 
 /**
+ * 输入框 + 标题的小组合（登录页/改口令弹窗共用）
+ * @param {string} label
+ * @param {HTMLElement} input
+ * @returns {HTMLElement}
+ */
+export function labelled(label, input) {
+  const wrap = node('field');
+  wrap.appendChild(tag('label', 'field-label', label));
+  wrap.appendChild(input);
+  return wrap;
+}
+
+/**
  * 按钮：dom 里只建一次，后续只改 disabled / 文本
  * @param {{ label: string, className?: string, onClick?: (ev: Event) => void, type?: string }} options
  * @returns {HTMLButtonElement}

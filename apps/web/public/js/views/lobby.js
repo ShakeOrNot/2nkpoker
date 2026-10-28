@@ -7,7 +7,7 @@
  *   3. 手动输入房号或粘贴分享链接
  */
 
-import { View, button, node, setDisabled, setText, tag } from './base.js';
+import { View, button, labelled, node, setDisabled, setText, tag } from './base.js';
 import { toast, copyText } from '../core/dom.js';
 import { stakeText, ago } from '../core/format.js';
 import { BLIND_LEVELS, MAX_SEATS, MIN_BUY_IN, MAX_BUY_IN } from '../core/constants.js';
@@ -58,6 +58,12 @@ export class LobbyView extends View {
     header.appendChild(who);
 
     const actions = node('header-actions');
+    this.passwordBtn = button({
+      label: '改口令',
+      className: 'btn-ghost btn-sm',
+      onClick: () => this.openPasswordModal(),
+    });
+    actions.appendChild(this.passwordBtn);
     this.logoutBtn = button({
       label: '退出',
       className: 'btn-ghost btn-sm',
@@ -66,6 +72,48 @@ export class LobbyView extends View {
     actions.appendChild(this.logoutBtn);
     header.appendChild(actions);
     this.root.appendChild(header);
+
+    /* 改口令弹窗（离线练习时隐藏） */
+    this.pwOverlay = node('modal-overlay');
+    const pwCard = node('modal-card');
+    pwCard.appendChild(tag('h3', 'modal-title', '修改口令'));
+    pwCard.appendChild(tag('p', 'modal-hint', '改完其它设备的登录会立即失效，需要重新登录'));
+
+    this.pwOld = tag('input', 'input');
+    this.pwOld.type = 'password';
+    this.pwOld.autocomplete = 'current-password';
+    this.pwOld.placeholder = '当前口令';
+    pwCard.appendChild(labelled('当前口令', this.pwOld));
+
+    this.pwNew = tag('input', 'input');
+    this.pwNew.type = 'password';
+    this.pwNew.autocomplete = 'new-password';
+    this.pwNew.placeholder = '新口令（至少 8 位）';
+    pwCard.appendChild(labelled('新口令', this.pwNew));
+
+    this.pwConfirm = tag('input', 'input');
+    this.pwConfirm.type = 'password';
+    this.pwConfirm.autocomplete = 'new-password';
+    this.pwConfirm.placeholder = '再输一次新口令';
+    pwCard.appendChild(labelled('确认新口令', this.pwConfirm));
+
+    const pwRow = node('modal-actions');
+    pwRow.appendChild(
+      button({ label: '取消', className: 'btn-ghost', onClick: () => this.closePasswordModal() }),
+    );
+    this.pwSubmit = button({
+      label: '确认修改',
+      className: 'btn-primary',
+      onClick: () => void this.submitPassword(),
+    });
+    pwRow.appendChild(this.pwSubmit);
+    pwCard.appendChild(pwRow);
+
+    this.pwOverlay.appendChild(pwCard);
+    this.pwOverlay.addEventListener('click', (ev) => {
+      if (ev.target === this.pwOverlay) this.closePasswordModal();
+    });
+    this.root.appendChild(this.pwOverlay);
 
     /* 模式切换 */
     const tabs = node('tabs');
@@ -398,6 +446,56 @@ export class LobbyView extends View {
     else this.store.logout();
   }
 
+  /* ---------------- 改口令弹窗 ---------------- */
+
+  openPasswordModal() {
+    if (this.store.state.offline) {
+      toast('离线练习没有账号，不需要改口令', 'info');
+      return;
+    }
+    this.pwOld.value = '';
+    this.pwNew.value = '';
+    this.pwConfirm.value = '';
+    this.pwOverlay.classList.add('visible');
+    this.pwOld.focus();
+  }
+
+  closePasswordModal() {
+    this.pwOverlay.classList.remove('visible');
+  }
+
+  async submitPassword() {
+    const oldPassword = this.pwOld.value;
+    const newPassword = this.pwNew.value;
+    if (!oldPassword) {
+      toast('请输入当前口令', 'error');
+      this.pwOld.focus();
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast('新口令至少 8 位', 'error');
+      this.pwNew.focus();
+      return;
+    }
+    if (newPassword !== this.pwConfirm.value) {
+      toast('两次输入的新口令不一致', 'error');
+      this.pwConfirm.focus();
+      return;
+    }
+
+    setDisabled(this.pwSubmit, true);
+    setText(this.pwSubmit, '提交中…');
+    const res = await this.store.changePassword(oldPassword, newPassword);
+    setDisabled(this.pwSubmit, false);
+    setText(this.pwSubmit, '确认修改');
+    if (!res.ok) {
+      toast(res.message || '改口令失败', 'error');
+      return;
+    }
+    this.closePasswordModal();
+    toast('口令已修改，其它设备需要重新登录', 'info');
+  }
+
   /**
    * @param {any} state
    */
@@ -405,6 +503,8 @@ export class LobbyView extends View {
     setText(this.userLabel, state.session?.nickname ? `${state.session.nickname}` : '未登录');
     setDisabled(this.createBtn, Boolean(state.busy));
     setText(this.logoutBtn, state.offline ? '退出离线' : '退出');
+    // 离线练习没有账号，改口令按钮直接藏起来
+    this.passwordBtn.classList.toggle('hidden', Boolean(state.offline));
 
     const offlineTag = state.offline ? '（离线练习）' : '';
     setText(

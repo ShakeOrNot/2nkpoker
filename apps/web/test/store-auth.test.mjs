@@ -98,7 +98,7 @@ describe('账密登录（store ↔ HTTP）', () => {
     expect(calls[0].url.endsWith('/auth/register')).toBe(true);
   });
 
-  it('refreshAccessToken 换新令牌；失败则回登录页', async () => {
+  it('refreshAccessToken 换新令牌；失败只挂横幅、不把人踢回登录页', async () => {
     const store = freshStore();
     store.installSession({
       token: 'old-access-token-value',
@@ -107,10 +107,13 @@ describe('账密登录（store ↔ HTTP）', () => {
       nickname: '阿豪',
       expiresAt: Date.now() + 60000,
     });
+    store.state.phase = 'table';
 
-    let body = sessionBody({ accessToken: 'new-access-token-value', refreshToken: 'new-refresh-token-value' });
     await withFetch(
-      () => jsonResponse(body),
+      () =>
+        jsonResponse(
+          sessionBody({ accessToken: 'new-access-token-value', refreshToken: 'new-refresh-token-value' }),
+        ),
       async () => {
         const ok = await store.refreshAccessToken();
         expect(ok).toBe(true);
@@ -119,14 +122,75 @@ describe('账密登录（store ↔ HTTP）', () => {
       },
     );
 
-    // 刷新令牌失效 → 直接登出回登录页
+    // 刷新令牌失效：保留当前页面（phase 仍是 table），只置 authExpired
     await withFetch(
       () => jsonResponse({ ok: false, code: 'AUTH_REFRESH_INVALID' }, 401),
       async () => {
         const ok = await store.refreshAccessToken();
         expect(ok).toBe(false);
-        expect(store.state.phase).toBe('login');
-        expect(store.state.session).toBeNull();
+        expect(store.state.authExpired).toBe(true);
+        expect(store.state.phase).toBe('table');
+        expect(Boolean(store.state.session)).toBe(true);
+      },
+    );
+
+    // 点"重新登录"才回登录页
+    store.reLogin();
+    expect(store.state.phase).toBe('login');
+    expect(store.state.session).toBeNull();
+    expect(store.state.authExpired).toBe(false);
+  });
+
+  it('changePassword 成功后换上新令牌，且不改当前页面', async () => {
+    const store = freshStore();
+    store.installSession({
+      token: 'old-access',
+      refreshToken: 'old-refresh',
+      userId: 'u1',
+      nickname: '阿豪',
+      expiresAt: Date.now() + 60000,
+    });
+    store.state.phase = 'table';
+
+    let seenUrl = '';
+    let seenAuth = '';
+    await withFetch(
+      (url, init) => {
+        seenUrl = url;
+        seenAuth = String(init?.headers?.Authorization ?? '');
+        return jsonResponse(
+          sessionBody({ accessToken: 'fresh-access', refreshToken: 'fresh-refresh' }),
+        );
+      },
+      async () => {
+        const res = await store.changePassword('poker-2026', 'poker-2027');
+        expect(res.ok).toBe(true);
+      },
+    );
+
+    expect(seenUrl.endsWith('/auth/change-password')).toBe(true);
+    expect(seenAuth).toBe('Bearer old-access');
+    expect(store.state.session?.token).toBe('fresh-access');
+    expect(store.state.session?.refreshToken).toBe('fresh-refresh');
+    expect(store.state.phase).toBe('table'); // 不被踢回大厅/登录页
+  });
+
+  it('changePassword 失败会把错误码带出来', async () => {
+    const store = freshStore();
+    store.installSession({
+      token: 'access-x',
+      refreshToken: 'refresh-x',
+      userId: 'u1',
+      nickname: '阿豪',
+      expiresAt: Date.now() + 60000,
+    });
+
+    await withFetch(
+      () => jsonResponse({ ok: false, code: 'AUTH_INVALID_CREDENTIALS', message: '旧口令不对' }, 401),
+      async () => {
+        const res = await store.changePassword('wrong', 'poker-2027');
+        expect(res.ok).toBe(false);
+        expect(res.code).toBe('AUTH_INVALID_CREDENTIALS');
       },
     );
   });

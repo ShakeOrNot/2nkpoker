@@ -425,6 +425,34 @@ if (!failed) {
     console.log(`  FAIL  离线模式退出按钮: ${err?.message ?? err}`);
     if (err?.stack) console.log(err.stack.split('\n').slice(0, 4).join('\n'));
   }
+
+  /* ---- 改口令弹窗：在线可用、离线隐藏 ---- */
+  try {
+    const appStore = globalThis.window.__poker.store;
+    const views = globalThis.window.__poker.views;
+
+    appStore.state.offline = false;
+    views.lobby.openPasswordModal();
+    if (!views.lobby.pwOverlay.classList.contains('visible')) throw new Error('弹窗没打开');
+    views.lobby.closePasswordModal();
+    if (views.lobby.pwOverlay.classList.contains('visible')) throw new Error('弹窗没关上');
+
+    appStore.state.offline = true;
+    views.lobby.render(appStore.state);
+    if (!views.lobby.passwordBtn.classList.contains('hidden')) {
+      throw new Error('离线模式还显示「改口令」按钮');
+    }
+    appStore.state.offline = false;
+    views.lobby.render(appStore.state);
+    if (views.lobby.passwordBtn.classList.contains('hidden')) {
+      throw new Error('在线模式「改口令」按钮被藏起来了');
+    }
+    console.log('  ok    改口令弹窗能开能关，离线模式隐藏入口');
+  } catch (err) {
+    failed++;
+    console.log(`  FAIL  改口令弹窗: ${err?.message ?? err}`);
+    if (err?.stack) console.log(err.stack.split('\n').slice(0, 4).join('\n'));
+  }
 }
 
 console.log(failed ? `DOM 冒烟：${failed} 个失败` : 'DOM 冒烟：全部通过');

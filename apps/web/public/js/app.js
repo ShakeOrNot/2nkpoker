@@ -40,6 +40,21 @@ toolbar.appendChild(layoutBtn);
 const connDot = node('conn-dot');
 toolbar.appendChild(connDot);
 
+/* ---------- 登录过期横幅：页面保持不动，用户自己点"重新登录" ---------- */
+
+const authBanner = document.createElement('div');
+authBanner.className = 'auth-banner';
+authBanner.appendChild(
+  tag('span', 'auth-banner-text', '登录已过期：当前页面还在，重新登录后可继续（否则操作会被拒绝）'),
+);
+const reLoginBtn = document.createElement('button');
+reLoginBtn.type = 'button';
+reLoginBtn.className = 'btn-primary btn-sm';
+reLoginBtn.textContent = '重新登录';
+reLoginBtn.addEventListener('click', () => store.reLogin());
+authBanner.appendChild(reLoginBtn);
+document.body.appendChild(authBanner);
+
 /**
  * 切换视图
  * @param {string} phase
@@ -67,6 +82,7 @@ store.subscribe((state) => {
 
   const layoutText = { auto: '自动', portrait: '竖屏', landscape: '横屏' }[state.layout ?? 'auto'];
   setText(layoutBtn, `布局：${layoutText}`);
+  authBanner.classList.toggle('visible', Boolean(state.authExpired));
 
   const connMap = {
     online: ['conn-ok', '已连接'],

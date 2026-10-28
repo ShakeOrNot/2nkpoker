@@ -1579,3 +1579,68 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
   .seats-oval .seat { width: 132px; }
   .card-lg { width: 48px; height: 68px; font-size: 22px; }
 }
+
+/* ---------------------------------------------------------------- 改口令弹窗 / 登录过期横幅 */
+/* 界面：大厅右上角「改口令」打开的居中弹窗；离线练习时按钮隐藏
+   代码：js/views/lobby.js 的 openPasswordModal / submitPassword */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 9, 0.72);
+  backdrop-filter: blur(3px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 90;
+}
+
+.modal-overlay.visible { display: flex; }
+
+.modal-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-title { margin: 0; font-size: 18px; }
+.modal-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* 顶部"登录已过期"横幅：页面不跳走，点右侧按钮才回登录页 */
+.auth-banner {
+  display: none;
+  position: fixed;
+  top: calc(6px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 160;
+  max-width: min(94vw, 640px);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(64, 46, 12, 0.97);
+  border: 1px solid #8a6a1e;
+  color: #ffe9b0;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: var(--shadow);
+}
+
+.auth-banner.visible { display: flex; }
+.auth-banner-text { flex: 1; }

@@ -360,5 +360,17 @@ Promise.reject(new Error('模拟一个未处理的错误'));
 await sleep(120);
 step('未处理的错误会显示在顶部错误条', banner.classList.contains('visible') && banner.textContent.includes('模拟一个未处理的错误'), banner.textContent);
 
+/* --- 登录过期：横幅出现、页面不跳走，点按钮才回登录页 --- */
+console.log('登录过期：');
+store.state.authExpired = true;
+store.onChange();
+await sleep(30);
+const authBanner = document.querySelector('.auth-banner');
+step('登录过期时顶部横幅出现', Boolean(authBanner) && authBanner.classList.contains('visible'), authBanner ? authBanner.className : '未找到横幅');
+step('横幅出现时页面仍停在牌桌', store.state.phase === 'table', `phase=${store.state.phase}`);
+authBanner.querySelector('button').click();
+await sleep(30);
+step('点「重新登录」才回到登录页', store.state.phase === 'login' && store.state.authExpired === false, `phase=${store.state.phase}`);
+
 console.log(failed ? `\n端到端冒烟：${failed} 项失败` : '\n端到端冒烟：全部通过');
 process.exit(failed ? 1 : 0);

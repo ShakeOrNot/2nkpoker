@@ -74,6 +74,8 @@ export class Store {
       serverConfig,
       /** 登录页上的网络状态：unknown | ok | fail */
       serverStatus: 'unknown',
+      /** access token 续期失败：顶部横幅提示，但当前页面保持不动 */
+      authExpired: false,
       offline: readStore(STORAGE_KEYS.offline) === '1',
       /** 协议模式：'auto' | 'local'（本仓库 game-server） | 'remote'（另一种协议的后端） */
       proto: resolveProto(),
@@ -362,13 +364,24 @@ export class Store {
   }
 
   /**
-   * 落库 + 切大厅 + 排续期
+   * 落库 + 切大厅 + 排续期（登录/注册成功后用）
    * @param {{ token: string, refreshToken?: string, userId: string, nickname: string, expiresAt: number }} session
    */
   installSession(session) {
     writeStore(STORAGE_KEYS.session, session);
-    this.patch({ session, phase: 'lobby', busy: false });
+    this.patch({ session, phase: 'lobby', busy: false, authExpired: false });
     this.log(`已登录：${session.nickname}`);
+    this.scheduleTokenRefresh();
+  }
+
+  /**
+   * 只更新会话、不动当前页面（续期/改口令后用，避免把人从牌桌上踢回大厅）
+   * @param {any} session
+   */
+  applySession(session) {
+    writeStore(STORAGE_KEYS.session, session);
+    this.patch({ session, authExpired: false });
+    this.socket?.updateAuth?.(session.token);
     this.scheduleTokenRefresh();
   }
 
@@ -383,7 +396,9 @@ export class Store {
   }
 
   /**
-   * 用刷新令牌换新的 access token；失败就回登录页
+   * 用刷新令牌换新的 access token。
+   * 刷新失败**不再直接把页面切回登录**：只置 authExpired，让顶部横幅提示，
+   * 当前牌桌/等待室还在，用户点"重新登录"再回登录页（否则打一半被踢走）。
    * @returns {Promise<boolean>}
    */
   async refreshAccessToken() {
@@ -391,8 +406,8 @@ export class Store {
     if (!session?.refreshToken) return false;
     const res = await api.refresh(session.refreshToken);
     if (!res.ok) {
-      // 刷新令牌作废/过期：只能重新登录
-      this.logout('登录已过期，请重新登录');
+      this.patch({ authExpired: true });
+      this.log('登录已过期，请点顶部「重新登录」');
       return false;
     }
     const next = {
@@ -403,12 +418,43 @@ export class Store {
       nickname: res.nickname || session.nickname,
       userId: res.userId || session.userId,
     };
-    writeStore(STORAGE_KEYS.session, next);
-    this.patch({ session: next });
-    // 重连时 socket 需要新 token
-    this.socket?.updateAuth?.(next.token);
-    this.scheduleTokenRefresh();
+    this.applySession(next);
     return true;
+  }
+
+  /** 顶部横幅上的"重新登录"：清掉本地会话回登录页 */
+  reLogin() {
+    this.logout('');
+    this.patch({ authExpired: false });
+  }
+
+  /**
+   * 改口令：成功后服务端会发一对新令牌，这里直接换上（不用重新登录）
+   * @param {string} oldPassword
+   * @param {string} newPassword
+   * @returns {Promise<{ ok: boolean, code?: string, message?: string }>}
+   */
+  async changePassword(oldPassword, newPassword) {
+    const session = this.state.session;
+    if (!session?.token) return { ok: false, code: 'AUTH_FAILED' };
+    const res = await api.changePassword(session.token, oldPassword, newPassword);
+    if (!res.ok) {
+      return {
+        ok: false,
+        code: res.code,
+        message: this.reportError(res.message ?? errorText(res.code, '改口令失败'), { code: res.code, log: false }),
+      };
+    }
+    this.applySession({
+      ...session,
+      token: res.token,
+      refreshToken: res.refreshToken || session.refreshToken,
+      expiresAt: res.expiresAt,
+      nickname: res.nickname || session.nickname,
+      userId: res.userId || session.userId,
+    });
+    this.log('口令已修改');
+    return { ok: true };
   }
 
   /**
@@ -426,6 +472,7 @@ export class Store {
       phase: 'login',
       connection: 'idle',
       lastHoleCards: [],
+      authExpired: false,
     });
     this.patchRoom({ tableId: '', snapshot: null, actionRequest: null, lastResult: null, log: [], notice: '' });
     if (message) toast(message, 'info');

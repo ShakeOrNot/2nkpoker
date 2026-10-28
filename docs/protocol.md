@@ -48,6 +48,7 @@
 | POST | `/auth/logout` | `{ refreshToken }` → `{ ok: true }` |
 | GET | `/auth/me` | `Authorization: Bearer <access>` → `{ ok, user }` |
 | POST | `/auth/change-password` | `{ oldPassword, newPassword }`（需 Bearer）→ 新会话 |
+| POST | `/auth/admin/reset-password` | `{ nickname, newPassword }`（需 Bearer + `role=admin`）→ `{ ok: true }` |
 | GET | `/tables` | `{ tables: TableSummary[] }`，新建的在前；空桌不列出（`POST /tables` 显式创建过的除外） |
 | GET | `/tables/:tableId` | `{ ok: true, table: TableSummary }`；不存在时 404 + `{ ok: false, code: 'TABLE_NOT_FOUND' }` |
 | POST | `/tables` | 创建/取回牌局，见下 |
@@ -226,6 +227,8 @@ type HandResult = {
 | `AUTH_REFRESH_INVALID` | 刷新令牌无效/过期/被轮换作废 | 登录已失效，请重新登录 |
 | `AUTH_CREDENTIALS_CHANGED` | 口令已变更，旧 access token 失效 | 口令已变更，请重新登录 |
 | `AUTH_DISABLED` | 账号被管理员禁用 | 账号已被禁用，请联系管理员 |
+| `FORBIDDEN` | 普通账号调用了管理员接口 | 你没有权限做这个操作 |
+| `USER_NOT_FOUND` | 管理员重置口令时目标账号不存在 | 没有这个账号 |
 | `RATE_LIMITED` | 同 IP 失败过于频繁（429） | 操作太快了，稍等一下 |
 | `INVALID_PAYLOAD` | zod 校验失败（字段缺失/越界） | 请求格式不对，请刷新页面重试 |
 | `TABLE_NOT_FOUND` | 牌局不存在 | 牌局不存在，可能已被解散 |

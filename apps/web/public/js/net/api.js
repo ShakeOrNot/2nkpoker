@@ -165,6 +165,23 @@ export async function logout(refreshToken) {
 }
 
 /**
+ * 改口令：成功后返回一对新令牌（服务端会把旧令牌全部作废）
+ * @param {string} token access token
+ * @param {string} oldPassword
+ * @param {string} newPassword
+ */
+export async function changePassword(token, oldPassword, newPassword) {
+  if (!token) return { ok: false, code: 'AUTH_FAILED' };
+  const res = await postJson(
+    '/auth/change-password',
+    { oldPassword: String(oldPassword ?? ''), newPassword: String(newPassword ?? '') },
+    { token, timeoutMs: 15000 },
+  );
+  if (!res.ok) return { ok: false, code: res.code, message: res.message };
+  return toSession(res.data);
+}
+
+/**
  * 当前用户（校验 access token）
  * @param {string} accessToken
  */

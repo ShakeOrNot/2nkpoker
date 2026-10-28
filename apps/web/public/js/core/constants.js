@@ -56,6 +56,8 @@ export const ERROR_TEXT = {
   AUTH_REFRESH_INVALID: '登录已失效，请重新登录',
   AUTH_CREDENTIALS_CHANGED: '口令已变更，请重新登录',
   AUTH_DISABLED: '账号已被禁用，请联系管理员',
+  FORBIDDEN: '你没有权限做这个操作',
+  USER_NOT_FOUND: '没有这个账号',
   NEED_PASSWORD: '请输入口令',
   OFFLINE_NO_ACCOUNT: '离线练习不需要注册',
   TABLE_NOT_FOUND: '牌局不存在，可能已被解散',

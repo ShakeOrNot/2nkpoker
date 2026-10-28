@@ -5,6 +5,7 @@
  * 用法（仓库根目录执行）：
  *   node apps/game-server/scripts/reset-password.mjs <昵称> <新口令>
  *   node apps/game-server/scripts/reset-password.mjs --make-admin <昵称>
+ *   node apps/game-server/scripts/reset-password.mjs --make-user <昵称>
  *   node apps/game-server/scripts/reset-password.mjs --disable <昵称>
  *   node apps/game-server/scripts/reset-password.mjs --enable <昵称>
  *   node apps/game-server/scripts/reset-password.mjs --list
@@ -45,6 +46,11 @@ if (!user) fail(`没有这个账号：${nickname}`);
 if (flag === '--make-admin') {
   setRole(user.id, 'admin');
   console.log(`[ok] ${nickname} 现在是 admin`);
+  process.exit(0);
+}
+if (flag === '--make-user') {
+  setRole(user.id, 'user');
+  console.log(`[ok] ${nickname} 已降回普通用户`);
   process.exit(0);
 }
 if (flag === '--disable') {
