@@ -24,6 +24,8 @@ const CLIENT_SOURCES = [
  * @property {(payload: any) => void} [onActionRequest]
  * @property {(payload: any) => void} [onActionApplied]
  * @property {(payload: any) => void} [onResult]
+ * @property {(payload: any) => void} [onTableClosed]
+ * @property {(payload: any) => void} [onTableKicked]
  * @property {(payload: any) => void} [onServerError]
  */
 
@@ -71,6 +73,8 @@ const EVENT_MAP = {
   'game:action_request': 'onActionRequest',
   'game:action_applied': 'onActionApplied',
   'game:result': 'onResult',
+  'table:closed': 'onTableClosed',
+  'table:kicked': 'onTableKicked',
   error: 'onServerError',
 };
 

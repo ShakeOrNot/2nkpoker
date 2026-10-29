@@ -25,16 +25,10 @@ export function describe(name, fn) {
 
 export function it(name, fn) {
   const full = [...stack, name].join(' > ');
-  pendings.push(
-    (async () => {
-      try {
-        await fn();
-        passed++;
-      } catch (err) {
-        failures.push({ full, err });
-      }
-    })(),
-  );
+  // 只登记、不立刻执行：report() 里按顺序 await。
+  // 之前是"全部并发跑"，多个用例同时替换 globalThis.fetch 时会互相踩，
+  // 表现为"上一个用例把 fetch 还原了，下一个用例的请求就打到真网络上"。
+  pendings.push({ full, fn });
 }
 
 export const test = it;
@@ -185,7 +179,14 @@ export function expect(actual) {
  * @returns {Promise<number>} 失败数
  */
 export async function report(label) {
-  await Promise.allSettled(pendings.splice(0, pendings.length));
+  for (const { full, fn } of pendings.splice(0, pendings.length)) {
+    try {
+      await fn();
+      passed++;
+    } catch (err) {
+      failures.push({ full, err });
+    }
+  }
   for (const { full, err } of failures) {
     console.log(`  FAIL  ${full}\n        ${err?.message ?? err}`);
   }

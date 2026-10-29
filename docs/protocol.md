@@ -49,16 +49,20 @@
 | PATCH | `/auth/admin/users/:id` | `{ role?: 'user'|'admin', disabled?: boolean }`（至少一项）→ `{ ok, user }` |
 | POST | `/auth/admin/reset-password` | `{ nickname, newPassword }` → `{ ok: true }` |
 | GET | `/auth/admin/audit?limit=` | 审计日志（`limit` 1~200，默认 50，按时间倒序）→ `{ ok, entries }` |
+| GET | `/auth/admin/tables` | 所有牌桌 + 座位详情 → `{ ok, tables: [{ tableId, smallBlind, bigBlind, maxSeats, createdAt, hasHand, seats: [{ seat, userId, nickname, chips, ready, connected, leaving }] }] }` |
+| POST | `/auth/admin/tables/:tableId/close` | 强制解散牌局：通知房间 `table:closed` → 清掉桌子 → `{ ok, tableId }` |
+| POST | `/auth/admin/tables/:tableId/kick` | `{ userId }` 踢人：清座位 → 通知本人 `table:kicked` → `{ ok, tableId, seat }`；手牌进行中返回 409 `HAND_IN_PROGRESS` |
 
 规则：
 
-- 四个接口都要 `Authorization: Bearer <access>` 且 `role=admin`，否则 403 `FORBIDDEN`（并写一条 `admin-denied` 审计）
+- 这些接口都要 `Authorization: Bearer <access>` 且 `role=admin`，否则 403 `FORBIDDEN`（并写一条 `admin-denied` 审计）
 - 不能修改自己（400 `CANNOT_MODIFY_SELF`，改自己请走 `/auth/change-password`）
 - 不能把最后一个启用的管理员降权/禁用（400 `LAST_ADMIN`）
 - 改角色 / 禁用 / 重置口令都会 `token_version + 1` 并撤销该账号全部 refresh token，目标需要重新登录
 - 被禁用账号的旧 access 调 `/auth/me` 返回 403 `AUTH_DISABLED`
-- 审计条目字段：`{ at: number（毫秒）, action, nickname, ip, ok: boolean }`；`action` 目前有 `register` `login` `login-failed` `refresh` `logout` `change-password` `admin-reset` `admin-update` `admin-denied`
-- 前端入口：大厅右上角「管理」（仅 `user.role === 'admin'` 可见），对应视图 `views/admin.js`
+- 牌桌管理：解散会清除计时器并删桌；踢人要求当前没有进行中的手牌（避免牌局卡死），目标不在桌上返回 404 `USER_NOT_IN_TABLE`
+- 审计条目字段：`{ at: number（毫秒）, action, nickname, ip, ok: boolean }`；`action` 目前有 `register` `login` `login-failed` `refresh` `logout` `change-password` `admin-reset` `admin-update` `admin-denied` `admin-close-table` `admin-kick`
+- 前端入口：大厅右上角「管理」（仅 `user.role === 'admin'` 可见），对应视图 `views/admin.js`；分「账号 / 牌桌 / 审计日志」三个页签
 
 ## 3. HTTP 接口
 
@@ -76,6 +80,9 @@
 | GET | `/auth/admin/users` | 管理员账号列表，见 2.3 |
 | PATCH | `/auth/admin/users/:id` | 管理员改角色/禁用，见 2.3 |
 | GET | `/auth/admin/audit` | 审计日志，见 2.3 |
+| GET | `/auth/admin/tables` | 管理员牌桌列表（含座位），见 2.3 |
+| POST | `/auth/admin/tables/:tableId/close` | 管理员解散牌局，见 2.3 |
+| POST | `/auth/admin/tables/:tableId/kick` | 管理员踢人，见 2.3 |
 | GET | `/tables` | `{ tables: TableSummary[] }`，新建的在前；空桌不列出（`POST /tables` 显式创建过的除外） |
 | GET | `/tables/:tableId` | `{ ok: true, table: TableSummary }`；不存在时 404 + `{ ok: false, code: 'TABLE_NOT_FOUND' }` |
 | POST | `/tables` | 创建/取回牌局，见下 |
@@ -163,7 +170,7 @@ type Action =
 
 ### 4.2 服务端 → 客户端
 
-**只有这 5 个事件**（不存在 `game:street` / `game:showdown` / `hand:hole_cards` / `error`）：
+**只有这 7 个事件**（不存在 `game:street` / `game:showdown` / `hand:hole_cards` / `error`）：
 
 | 事件 | 载荷 | 发给谁 |
 | :--- | :--- | :--- |
@@ -172,6 +179,8 @@ type Action =
 | `game:action_request` | `{ handId, seat, legalActions, deadline, version }` | **只发给当前行动者** |
 | `game:action_applied` | `{ seat, action, handId, timeout? }` | 房间 |
 | `game:result` | `{ handId, result, board, seats }` | 房间 |
+| `table:closed` | `{ tableId, by }` | 房间（管理员解散牌局时）；前端收到后回大厅 |
+| `table:kicked` | `{ tableId, by }` | **只发给被踢的人**；前端收到后回大厅 |
 
 要点：
 
@@ -256,6 +265,7 @@ type HandResult = {
 | `AUTH_DISABLED` | 账号被管理员禁用 | 账号已被禁用，请联系管理员 |
 | `FORBIDDEN` | 普通账号调用了管理员接口 | 你没有权限做这个操作 |
 | `USER_NOT_FOUND` | 管理员操作的目标账号不存在 | 没有这个账号 |
+| `USER_NOT_IN_TABLE` | 踢的人不在该牌桌 | 该玩家不在这张桌上 |
 | `CANNOT_MODIFY_SELF` | 管理员对自己执行改角色/禁用 | 不能修改自己的账号（改自己请用「改口令」） |
 | `LAST_ADMIN` | 会消灭最后一个启用管理员的降权/禁用 | 至少要保留一个管理员 |
 | `RATE_LIMITED` | 同 IP 失败过于频繁（429） | 操作太快了，稍等一下 |

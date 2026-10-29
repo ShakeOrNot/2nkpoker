@@ -557,6 +557,68 @@ export class Store {
     return api.adminAudit(token, limit);
   }
 
+  /** 所有牌桌（含座位） */
+  async adminTables() {
+    const token = this.state.session?.token;
+    if (!this.isAdmin || !token) return { ok: false, code: 'FORBIDDEN', message: '只有管理员可以看牌桌', tables: [] };
+    return api.adminTables(token);
+  }
+
+  /**
+   * 强制解散牌局
+   * @param {string} tableId
+   */
+  async adminCloseTable(tableId) {
+    const token = this.state.session?.token;
+    if (!this.isAdmin || !token) return { ok: false, code: 'FORBIDDEN', message: '只有管理员可以解散牌局' };
+    const res = await api.adminCloseTable(token, tableId);
+    if (res.ok) this.log(`已解散牌局 ${tableId}`);
+    return res;
+  }
+
+  /**
+   * 把玩家踢出牌桌
+   * @param {string} tableId
+   * @param {string} userId
+   */
+  async adminKickUser(tableId, userId) {
+    const token = this.state.session?.token;
+    if (!this.isAdmin || !token) return { ok: false, code: 'FORBIDDEN', message: '只有管理员可以踢人' };
+    const res = await api.adminKickUser(token, tableId, userId);
+    if (res.ok) this.log(`已把 ${userId} 踢出 ${tableId}`);
+    return res;
+  }
+
+  /**
+   * 管理员解散了当前牌局：清掉房间状态回大厅
+   * @param {any} payload
+   */
+  handleTableClosed(payload) {
+    const tableId = String(payload?.tableId ?? '');
+    this.patchRoom({
+      tableId: '',
+      snapshot: null,
+      actionRequest: null,
+      lastResult: null,
+      queued: false,
+      pendingLeave: false,
+    });
+    this.patch({ phase: 'lobby' });
+    this.log(`牌局 ${tableId} 已被管理员解散`);
+  }
+
+  /**
+   * 被管理员移出牌桌
+   * @param {any} payload
+   */
+  handleTableKicked(payload) {
+    const tableId = String(payload?.tableId ?? '');
+    this.patchRoom({ tableId: '', snapshot: null, actionRequest: null, lastResult: null, queued: false, pendingLeave: false });
+    this.patch({ phase: 'lobby' });
+    this.log(`你已被管理员移出牌局 ${tableId}`);
+    toast('你已被管理员移出牌局', 'info');
+  }
+
   /**
    * 当前是否要使用"远端另一种协议"的适配层。
    * ?proto=remote|local 是硬开关；auto 时按地址自动判断（含已知远端 IP）。
@@ -694,6 +756,8 @@ export class Store {
         this.log(`座位 ${payload.seat} ${verb}${payload.timeout ? '（超时自动）' : ''}`);
       },
       onResult: (payload) => this.applyResult(payload),
+      onTableClosed: (payload) => this.handleTableClosed(payload),
+      onTableKicked: (payload) => this.handleTableKicked(payload),
       onServerError: (payload) => {
         this.log(`服务端错误：${errorText(payload?.code, payload?.message)}`, 'error');
       },

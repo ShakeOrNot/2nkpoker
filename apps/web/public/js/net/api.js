@@ -371,6 +371,44 @@ export async function adminAudit(token, limit = 50) {
 }
 
 /**
+ * 管理员：所有牌桌（含座位）
+ * GET /auth/admin/tables → { ok, tables }
+ * @param {string} token
+ */
+export async function adminTables(token) {
+  if (!token) return { ...NO_TOKEN, tables: [] };
+  const res = await getJson('/auth/admin/tables', { token });
+  if (!res.ok) return { ok: false, code: res.code, message: res.message, tables: [] };
+  return { ok: true, tables: Array.isArray(res.data.tables) ? res.data.tables : [] };
+}
+
+/**
+ * 管理员：强制解散牌局
+ * POST /auth/admin/tables/:tableId/close
+ */
+export async function adminCloseTable(token, tableId) {
+  if (!token) return NO_TOKEN;
+  const res = await postJson(`/auth/admin/tables/${encodeURIComponent(String(tableId))}/close`, {}, { token });
+  if (!res.ok) return { ok: false, code: res.code, message: res.message };
+  return { ok: true };
+}
+
+/**
+ * 管理员：把某个玩家踢出牌桌
+ * POST /auth/admin/tables/:tableId/kick { userId }
+ */
+export async function adminKickUser(token, tableId, userId) {
+  if (!token) return NO_TOKEN;
+  const res = await postJson(
+    `/auth/admin/tables/${encodeURIComponent(String(tableId))}/kick`,
+    { userId: String(userId) },
+    { token },
+  );
+  if (!res.ok) return { ok: false, code: res.code, message: res.message };
+  return { ok: true };
+}
+
+/**
  * 健康检查，给登录页做"服务器连通性"提示
  * @returns {Promise<boolean>}
  */

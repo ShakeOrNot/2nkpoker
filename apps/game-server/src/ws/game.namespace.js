@@ -8,8 +8,19 @@ import {
   cancelPendingDisconnect,
 } from '../state/disconnectManager.js';
 
+/** 当前 /game 命名空间（管理后台的 HTTP 接口要往房间里广播，需要它） */
+let currentNamespace = null;
+
+/**
+ * @returns {import('socket.io').Namespace|null}
+ */
+export function getGameNamespace() {
+  return currentNamespace;
+}
+
 export function registerGameNamespace(io) {
   const nsp = io.of('/game');
+  currentNamespace = nsp;
 
   nsp.use((socket, next) => {
     const token = socket.handshake.auth?.token;

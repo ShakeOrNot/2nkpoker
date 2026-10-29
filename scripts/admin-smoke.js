@@ -151,7 +151,18 @@ async function main() {
   const deniedAudit = await api('/auth/admin/audit?limit=50', { method: 'GET', token: reLogin.accessToken });
   check(deniedAudit.status === 401 && deniedAudit.code === 'AUTH_CREDENTIALS_CHANGED', '降权后目标旧 access 失效（不会残留管理员权限）');
 
-  // 10. 清场：删不掉账号，至少把测试管理员降回普通账号
+  // 10. 牌桌管理：建桌 → 列表能看到 → 解散 → 列表里消失
+  const tableId = `admtbl_${TAG}`;
+  const created = await api('/tables', { body: { tableId, maxSeats: 6, smallBlind: 10, bigBlind: 20 } });
+  check(created.status === 200 || created.status === 201, '建一张测试牌桌');
+  const tables = await api('/auth/admin/tables', { method: 'GET', token: adminToken });
+  check(tables.ok && tables.tables.some((t) => t.tableId === tableId), '牌桌列表里能看到它');
+  const closed = await api(`/auth/admin/tables/${tableId}/close`, { body: {}, token: adminToken });
+  check(closed.ok, '解散牌桌成功');
+  const afterClose = await api('/auth/admin/tables', { method: 'GET', token: adminToken });
+  check(!afterClose.tables.some((t) => t.tableId === tableId), '解散后列表里消失');
+
+  // 11. 清场：删不掉账号，至少把测试管理员降回普通账号
   setUserRole(ADMIN_NICK, 'user');
   console.log(`\n[管理接口冒烟] 全部通过：${passed} 项断言`);
 }

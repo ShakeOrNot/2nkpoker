@@ -155,3 +155,48 @@ export function findUserTable(userId) {
   }
   return null;
 }
+
+/**
+ * 管理后台用：所有桌子的详细座位（含空桌）
+ * @returns {Array<any>}
+ */
+export function listTableDetails() {
+  /** @type {Array<any>} */
+  const out = [];
+  for (const t of tables.values()) {
+    out.push({
+      tableId: t.tableId,
+      smallBlind: t.smallBlind,
+      bigBlind: t.bigBlind,
+      maxSeats: t.maxSeats,
+      createdAt: t.createdAt ?? null,
+      hasHand: Boolean(t.handState && !t.handState.settled),
+      seats: [...t.seats.values()]
+        .map((s) => ({
+          seat: s.seat,
+          userId: s.userId,
+          nickname: s.nickname,
+          chips: s.chips,
+          ready: Boolean(s.ready),
+          connected: Boolean(s.connected),
+          leaving: Boolean(s.leaving),
+        }))
+        .sort((a, b) => a.seat - b.seat),
+    });
+  }
+  out.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  return out;
+}
+
+/**
+ * 强制关闭桌子（不管有没有人/进行中的手牌），返回被关掉的 table 供调用方通知房间
+ * @param {string} tableId
+ * @returns {any|null}
+ */
+export function closeTable(tableId) {
+  const t = tables.get(tableId) ?? null;
+  if (!t) return null;
+  tables.delete(tableId);
+  explicitlyCreated.delete(tableId);
+  return t;
+}

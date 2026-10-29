@@ -3,15 +3,18 @@ import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
 import { initDb } from '../src/users/db.js';
 import { registerAuthRoutes } from '../src/routes/auth.route.js';
+import { registerAdminTableRoutes } from '../src/routes/admin.tables.route.js';
 import { resetRateLimit } from '../src/auth/ratelimit.js';
 import { setRole } from '../src/users/userStore.js';
+import { closeTable, createTable, getTable } from '../src/state/tableManager.js';
 
-/** 每个用例一个干净的内存库 + 一个只挂了 auth 路由的 Fastify */
+/** 每个用例一个干净的内存库 + 一个挂了 auth/管理 路由的 Fastify */
 async function makeApp() {
   initDb(':memory:');
   resetRateLimit();
   const app = Fastify({ logger: false });
   registerAuthRoutes(app);
+  registerAdminTableRoutes(app);
   await app.ready();
   return app;
 }
@@ -388,5 +391,93 @@ describe('管理员：账号列表 / 禁用启用 / 角色', () => {
     // 越界 limit 会被夹到区间内，不会 500
     expect((await get(app, '/auth/admin/audit?limit=99999', boss.accessToken)).statusCode).toBe(200);
     expect((await get(app, '/auth/admin/audit?limit=-3', boss.accessToken)).statusCode).toBe(200);
+  });
+});
+
+describe('管理员：牌桌管理', () => {
+  let seq = 0;
+  /** 造一个带管理员令牌的 app，返回 { app, token } */
+  async function adminApp() {
+    const app = await makeApp();
+    const tag = `${Date.now().toString(36)}${seq++}`;
+    const reg = (await post(app, '/auth/register', { nickname: `adm_${tag}`, password: PASSWORD })).json();
+    setRole(reg.user.id, 'admin');
+    return { app, token: reg.accessToken, adminUserId: reg.user.id };
+  }
+
+  /** 直接塞一张桌子和一个座位（不经过 WS 入座流程） */
+  function seedTable(tableId, userId, nickname = '玩家') {
+    const table = createTable(tableId, { maxSeats: 6, smallBlind: 10, bigBlind: 20 });
+    table.seats.set(0, { seat: 0, userId, nickname, chips: 1000, ready: true, connected: true });
+    table.userToSeat.set(userId, 0);
+    table.version += 1;
+    return table;
+  }
+
+  it('非管理员访问牌桌接口 403', async () => {
+    const app = await makeApp();
+    const reg = (await post(app, '/auth/register', { nickname: `plain_${Date.now().toString(36)}`, password: PASSWORD })).json();
+    const list = await get(app, '/auth/admin/tables', reg.accessToken);
+    expect(list.statusCode).toBe(403);
+    expect(list.json().code).toBe('FORBIDDEN');
+  });
+
+  it('牌桌列表带座位详情', async () => {
+    const { app, token } = await adminApp();
+    const tableId = `tid_${Date.now().toString(36)}`;
+    seedTable(tableId, 'u_seat_1', '阿豪');
+
+    const res = await get(app, '/auth/admin/tables', token);
+    expect(res.statusCode).toBe(200);
+    const tables = res.json().tables;
+    const found = tables.find((t) => t.tableId === tableId);
+    expect(Boolean(found)).toBe(true);
+    expect(found.seats.length).toBe(1);
+    expect(found.seats[0].nickname).toBe('阿豪');
+    expect(found.seats[0].userId).toBe('u_seat_1');
+    expect(typeof found.hasHand).toBe('boolean');
+    closeTable(tableId);
+  });
+
+  it('解散牌局：返回 ok 并从管理器移除；再解散 404', async () => {
+    const { app, token } = await adminApp();
+    const tableId = `close_${Date.now().toString(36)}`;
+    seedTable(tableId, 'u_close');
+
+    const res = await post(app, `/auth/admin/tables/${tableId}/close`, {}, token);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+    expect(getTable(tableId)).toBeNull();
+
+    const again = await post(app, `/auth/admin/tables/${tableId}/close`, {}, token);
+    expect(again.statusCode).toBe(404);
+    expect(again.json().code).toBe('TABLE_NOT_FOUND');
+  });
+
+  it('踢人：清座位；不在桌上 404；手牌中 409；空 body 400', async () => {
+    const { app, token } = await adminApp();
+    const tableId = `kick_${Date.now().toString(36)}`;
+    const table = seedTable(tableId, 'u_kick');
+
+    const kick = await post(app, `/auth/admin/tables/${tableId}/kick`, { userId: 'u_kick' }, token);
+    expect(kick.statusCode).toBe(200);
+    expect(getTable(tableId).userToSeat.has('u_kick')).toBe(false);
+    expect(getTable(tableId).seats.size).toBe(0);
+
+    const ghost = await post(app, `/auth/admin/tables/${tableId}/kick`, { userId: 'nobody' }, token);
+    expect(ghost.statusCode).toBe(404);
+    expect(ghost.json().code).toBe('USER_NOT_IN_TABLE');
+
+    table.handState = { settled: false };
+    seedTable(tableId, 'u_kick2');
+    const during = await post(app, `/auth/admin/tables/${tableId}/kick`, { userId: 'u_kick2' }, token);
+    expect(during.statusCode).toBe(409);
+    expect(during.json().code).toBe('HAND_IN_PROGRESS');
+    table.handState = null;
+
+    const empty = await post(app, `/auth/admin/tables/${tableId}/kick`, {}, token);
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json().code).toBe('INVALID_PAYLOAD');
+    closeTable(tableId);
   });
 });

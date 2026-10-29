@@ -158,12 +158,58 @@ describe('管理面板接口（store ↔ HTTP）', () => {
         const b = await store.adminUpdateUser('u2', { disabled: true });
         const c = await store.adminResetPassword('x', 'whatever-1');
         const d = await store.adminAudit();
+        const e = await store.adminTables();
         expect(a.ok).toBe(false);
         expect(b.ok).toBe(false);
         expect(c.ok).toBe(false);
         expect(d.ok).toBe(false);
+        expect(e.ok).toBe(false);
       },
     );
     expect(calls.length).toBe(0);
+  });
+
+  it('牌桌管理：列表 / 解散 / 踢人 走对应接口', async () => {
+    const store = adminStore();
+    const calls = await withFetch(
+      (url) => {
+        if (url.includes('/auth/admin/tables/') && url.endsWith('/close')) return jsonResponse({ ok: true });
+        if (url.includes('/auth/admin/tables/') && url.endsWith('/kick')) return jsonResponse({ ok: true });
+        return jsonResponse({ ok: true, tables: [{ tableId: 't1', seats: [] }] });
+      },
+      async () => {
+        const list = await store.adminTables();
+        expect(list.ok).toBe(true);
+        expect(list.tables.length).toBe(1);
+
+        const closed = await store.adminCloseTable('t1');
+        expect(closed.ok).toBe(true);
+        const kicked = await store.adminKickUser('t1', 'u9');
+        expect(kicked.ok).toBe(true);
+      },
+    );
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url.endsWith('/auth/admin/tables')).toBe(true);
+    expect(calls[1].method).toBe('POST');
+    expect(calls[1].url.endsWith('/auth/admin/tables/t1/close')).toBe(true);
+    expect(calls[2].url.endsWith('/auth/admin/tables/t1/kick')).toBe(true);
+    expect(JSON.parse(calls[2].body).userId).toBe('u9');
+  });
+
+  it('收到 table:closed / table:kicked 会清掉房间回大厅', () => {
+    const store = adminStore();
+    store.state.phase = 'table';
+    store.state.room = { ...store.state.room, tableId: 't1', snapshot: { tableId: 't1' } };
+
+    store.handleTableClosed({ tableId: 't1' });
+    expect(store.state.phase).toBe('lobby');
+    expect(store.state.room.tableId).toBe('');
+    expect(store.state.room.snapshot).toBeNull();
+
+    store.state.phase = 'table';
+    store.state.room = { ...store.state.room, tableId: 't2', snapshot: { tableId: 't2' } };
+    store.handleTableKicked({ tableId: 't2' });
+    expect(store.state.phase).toBe('lobby');
+    expect(store.state.room.tableId).toBe('');
   });
 });

@@ -6,11 +6,26 @@
  */
 
 import { View, button, labelled, node, setDisabled, setText, tag } from './base.js';
-import { toast } from '../core/dom.js';
+import { copyText, toast } from '../core/dom.js';
 import { ago, clock } from '../core/format.js';
 
 const PAGE_SIZE = 20;
 const AUDIT_LIMIT = 50;
+
+/**
+ * 生成 12 位随机口令：字母+数字，保证至少一个字母（口令策略不允许纯数字）
+ * @returns {string}
+ */
+function randomPassword() {
+  const alphabet = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(12);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  let out = '';
+  for (const b of bytes) out += alphabet[b % alphabet.length];
+  if (/^\d+$/.test(out)) out = alphabet[out.charCodeAt(0) % 52] + out.slice(1);
+  return out;
+}
 
 export class AdminView extends View {
   /**
@@ -19,12 +34,13 @@ export class AdminView extends View {
   constructor(store) {
     super(store);
     this.root.classList.add('view-admin');
-    this.tab = 'users'; // users | audit
+    this.tab = 'users'; // users | tables | audit
     this.q = '';
     this.offset = 0;
     this.users = [];
     this.total = 0;
     this.loading = false;
+    this.tables = [];
     this.auditEntries = [];
     /** @type {any} */
     this.resetTarget = null;
@@ -57,8 +73,10 @@ export class AdminView extends View {
     /* 页签 */
     const tabs = node('admin-tabs');
     this.usersTab = button({ label: '账号', className: 'btn-ghost btn-sm', onClick: () => this.switchTab('users') });
+    this.tablesTab = button({ label: '牌桌', className: 'btn-ghost btn-sm', onClick: () => this.switchTab('tables') });
     this.auditTab = button({ label: '审计日志', className: 'btn-ghost btn-sm', onClick: () => this.switchTab('audit') });
     tabs.appendChild(this.usersTab);
+    tabs.appendChild(this.tablesTab);
     tabs.appendChild(this.auditTab);
     this.root.appendChild(tabs);
 
@@ -97,6 +115,18 @@ export class AdminView extends View {
     this.auditPanel.appendChild(this.auditList);
     this.root.appendChild(this.auditPanel);
 
+    /* 牌桌面板：所有桌子 + 座位，可解散/踢人 */
+    this.tablesPanel = node('admin-panel');
+    const tableBar = node('admin-search');
+    tableBar.appendChild(
+      button({ label: '刷新牌桌', className: 'btn-ghost btn-sm', onClick: () => void this.refreshTables() }),
+    );
+    tableBar.appendChild(tag('span', 'admin-hint', '解散会立刻踢掉所有人；手牌进行中不能单独踢人'));
+    this.tablesPanel.appendChild(tableBar);
+    this.tableList = node('admin-list');
+    this.tablesPanel.appendChild(this.tableList);
+    this.root.appendChild(this.tablesPanel);
+
     /* 重置口令弹窗 */
     this.pwOverlay = node('modal-overlay');
     const card = node('modal-card');
@@ -110,12 +140,38 @@ export class AdminView extends View {
     this.pwInput.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter') void this.submitReset();
     });
-    card.appendChild(labelled('新口令', this.pwInput));
-    const modalActions = node('modal-actions');
-    modalActions.appendChild(button({ label: '取消', className: 'btn-ghost', onClick: () => this.closeReset() }));
+    this.pwField = labelled('新口令', this.pwInput);
+    card.appendChild(this.pwField);
+
+    /* 随机生成 + 一次性展示 */
+    this.pwTools = node('admin-pw-tools');
+    this.pwRandomBtn = button({
+      label: '随机生成',
+      className: 'btn-ghost btn-sm',
+      onClick: () => this.generatePassword(),
+    });
+    this.pwTools.appendChild(this.pwRandomBtn);
+    this.pwTools.appendChild(tag('span', 'admin-hint', '重置后只显示这一次，请复制给玩家'));
+    card.appendChild(this.pwTools);
+
+    this.pwDone = node('admin-pw-done hidden');
+    this.pwDoneText = tag('div', 'admin-pw-value', '');
+    this.pwDone.appendChild(this.pwDoneText);
+    const pwDoneRow = node('modal-actions');
+    pwDoneRow.appendChild(
+      button({ label: '复制口令', className: 'btn-ghost', onClick: () => void this.copyPassword() }),
+    );
+    pwDoneRow.appendChild(button({ label: '完成', className: 'btn-primary', onClick: () => this.closeReset() }));
+    this.pwDone.appendChild(pwDoneRow);
+    card.appendChild(this.pwDone);
+
+    this.modalActions = node('modal-actions');
+    this.modalActions.appendChild(
+      button({ label: '取消', className: 'btn-ghost', onClick: () => this.closeReset() }),
+    );
     this.pwSubmit = button({ label: '确认重置', className: 'btn-primary', onClick: () => void this.submitReset() });
-    modalActions.appendChild(this.pwSubmit);
-    card.appendChild(modalActions);
+    this.modalActions.appendChild(this.pwSubmit);
+    card.appendChild(this.modalActions);
     this.pwOverlay.appendChild(card);
     this.pwOverlay.addEventListener('click', (ev) => {
       if (ev.target === this.pwOverlay) this.closeReset();
@@ -141,17 +197,20 @@ export class AdminView extends View {
 
   /* ---------------- 页签 ---------------- */
 
-  /** @param {'users'|'audit'} tab */
+  /** @param {'users'|'tables'|'audit'} tab */
   switchTab(tab) {
     this.tab = tab;
     this.renderTabs();
     if (tab === 'audit') void this.refreshAudit();
+    if (tab === 'tables') void this.refreshTables();
   }
 
   renderTabs() {
     this.usersPanel.classList.toggle('hidden', this.tab !== 'users');
+    this.tablesPanel.classList.toggle('hidden', this.tab !== 'tables');
     this.auditPanel.classList.toggle('hidden', this.tab !== 'audit');
     this.usersTab.classList.toggle('active', this.tab === 'users');
+    this.tablesTab.classList.toggle('active', this.tab === 'tables');
     this.auditTab.classList.toggle('active', this.tab === 'audit');
   }
 
@@ -284,6 +343,13 @@ export class AdminView extends View {
     this.resetTarget = user;
     setText(this.pwWho, `给「${user.nickname}」设置新口令（对方其它设备会立即失效）`);
     this.pwInput.value = '';
+    this.pwInput.type = 'password';
+    this.pwField.classList.remove('hidden');
+    this.pwTools.classList.remove('hidden');
+    this.pwDone.classList.add('hidden');
+    this.modalActions.classList.remove('hidden');
+    setDisabled(this.pwSubmit, false);
+    setText(this.pwSubmit, '确认重置');
     this.pwOverlay.classList.add('visible');
     this.pwInput.focus?.();
   }
@@ -291,6 +357,22 @@ export class AdminView extends View {
   closeReset() {
     this.pwOverlay.classList.remove('visible');
     this.resetTarget = null;
+  }
+
+  /** 生成一个随机口令并填进去（改成明文显示，方便复制） */
+  generatePassword() {
+    this.pwInput.value = randomPassword();
+    this.pwInput.type = 'text';
+    this.pwInput.focus?.();
+    toast('已生成随机口令', 'info');
+  }
+
+  /** 复制弹窗里展示的新口令 */
+  async copyPassword() {
+    const text = String(this.pwDoneText.textContent ?? '');
+    if (!text) return;
+    await copyText(text);
+    toast('口令已复制', 'info');
   }
 
   async submitReset() {
@@ -308,7 +390,13 @@ export class AdminView extends View {
       toast(res.message ?? '重置失败', 'error');
       return;
     }
-    this.closeReset();
+    // 只显示这一次：口令是单向哈希，关掉窗口就再也查不到了
+    setText(this.pwWho, `「${target.nickname}」的口令已重置，复制给他后让对方自行修改：`);
+    setText(this.pwDoneText, password);
+    this.pwField.classList.add('hidden');
+    this.pwTools.classList.add('hidden');
+    this.modalActions.classList.add('hidden');
+    this.pwDone.classList.remove('hidden');
     toast(`已重置「${target.nickname}」的口令`, 'info');
   }
 
@@ -341,5 +429,107 @@ export class AdminView extends View {
       row.appendChild(info);
       this.auditList.appendChild(row);
     }
+  }
+
+  /* ---------------- 牌桌管理 ---------------- */
+
+  async refreshTables() {
+    const res = await this.store.adminTables();
+    if (!res.ok) {
+      this.tableList.textContent = '';
+      toast(res.message ?? '加载牌桌失败', 'error');
+      return;
+    }
+    this.tables = res.tables;
+    this.renderTables();
+  }
+
+  renderTables() {
+    this.tableList.textContent = '';
+    if (!this.tables.length) {
+      this.tableList.appendChild(tag('p', 'admin-empty', '当前没有牌桌'));
+      return;
+    }
+    for (const table of this.tables) this.tableCard(table);
+  }
+
+  /** @param {any} table */
+  tableCard(table) {
+    const card = node('admin-table');
+
+    const head = node('admin-row');
+    const info = node('admin-cell');
+    info.appendChild(tag('div', 'admin-name', `#${table.tableId}`));
+    const stateText = table.hasHand ? '牌局进行中' : '空闲';
+    info.appendChild(
+      tag(
+        'div',
+        'admin-sub',
+        `盲注 ${table.smallBlind}/${table.bigBlind} · ${table.seats.length}/${table.maxSeats} 人 · ${stateText}`,
+      ),
+    );
+    head.appendChild(info);
+
+    const ops = node('admin-actions');
+    ops.appendChild(
+      button({
+        label: '解散牌局',
+        className: 'btn-ghost btn-sm admin-close-table',
+        onClick: () => void this.closeTable(table),
+      }),
+    );
+    head.appendChild(ops);
+    card.appendChild(head);
+
+    for (const seat of table.seats) {
+      const line = node('admin-seat');
+      const who = node('admin-cell');
+      who.appendChild(tag('div', 'admin-sub', `座位 ${seat.seat} · ${seat.nickname}${seat.leaving ? '（离桌中）' : ''}`));
+      who.appendChild(tag('div', 'admin-hint', `筹码 ${seat.chips} · ${seat.connected ? '在线' : '掉线'}${seat.ready ? ' · 已准备' : ''}`));
+      line.appendChild(who);
+
+      const seatOps = node('admin-actions');
+      const kick = button({
+        label: '踢出',
+        className: 'btn-ghost btn-sm admin-kick',
+        onClick: () => void this.kickUser(table, seat),
+      });
+      if (table.hasHand) {
+        setDisabled(kick, true);
+        kick.title = '手牌进行中不能踢人（可以先解散牌局）';
+      }
+      seatOps.appendChild(kick);
+      line.appendChild(seatOps);
+      card.appendChild(line);
+    }
+
+    this.tableList.appendChild(card);
+  }
+
+  /** @param {any} table */
+  async closeTable(table) {
+    if (!this.confirm(`解散牌局 #${table.tableId}？房间里所有人会被立刻移出。`)) return;
+    const res = await this.store.adminCloseTable(table.tableId);
+    if (!res.ok) {
+      toast(res.message ?? '解散失败', 'error');
+      return;
+    }
+    toast(`已解散牌局 #${table.tableId}`, 'info');
+    void this.refreshTables();
+  }
+
+  /**
+   * @param {any} table
+   * @param {any} seat
+   */
+  async kickUser(table, seat) {
+    if (!this.confirm(`把「${seat.nickname}」踢出牌局 #${table.tableId}？`)) return;
+    const res = await this.store.adminKickUser(table.tableId, seat.userId);
+    if (!res.ok) {
+      toast(res.message ?? '踢人失败', 'error');
+      return;
+    }
+    toast(`已踢出「${seat.nickname}」`, 'info');
+    void this.refreshTables();
   }
 }

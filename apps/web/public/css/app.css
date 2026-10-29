@@ -1744,6 +1744,37 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
   color: var(--muted);
 }
 
+/* 重置口令弹窗：随机生成按钮行 / 成功后的一次性口令展示 */
+.admin-pw-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-pw-tools.hidden { display: none; }
+
+.admin-pw-done {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-pw-done.hidden { display: none; }
+
+.admin-pw-value {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(246, 196, 83, 0.12);
+  border: 1px dashed #8a6a1e;
+  color: var(--accent);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 16px;
+  letter-spacing: 0.5px;
+  word-break: break-all;
+  user-select: all;
+}
+
 .admin-empty {
   margin: 0;
   padding: 18px 4px;
@@ -1765,4 +1796,31 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
   color: var(--muted);
   min-width: 90px;
   text-align: center;
+}
+
+/* 牌桌管理：每张桌子一张卡，里面逐行列座位 */
+.admin-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.admin-table > .admin-row {
+  background: transparent;
+  border: 0;
+  padding: 0 0 4px;
+}
+
+.admin-seat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  flex-wrap: wrap;
 }
