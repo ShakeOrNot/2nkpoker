@@ -33,6 +33,15 @@ function get(app, url, token) {
   });
 }
 
+function patch(app, url, payload, token) {
+  return app.inject({
+    method: 'PATCH',
+    url,
+    payload: payload ?? {},
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+}
+
 const PASSWORD = 'poker-2026';
 
 describe('注册', () => {
@@ -238,5 +247,146 @@ describe('管理员重置口令', () => {
     );
     expect(weak.statusCode).toBe(400);
     expect(weak.json().code).toBe('AUTH_WEAK_PASSWORD');
+  });
+});
+
+describe('管理员：账号列表 / 禁用启用 / 角色', () => {
+  /**
+   * 注册一个管理员 + 若干账号，返回 { app, boss, users }。
+   * 昵称带前缀：initDb(':memory:') 在同路径下会复用同一个库，不加前缀会撞上
+   * 前面用例注册过的昵称（AUTH_USER_EXISTS）。
+   * @param {string} prefix
+   * @param {string[]} names
+   */
+  async function seed(prefix, names) {
+    const app = await makeApp();
+    const boss = (await post(app, '/auth/register', { nickname: `${prefix}-boss`, password: PASSWORD })).json();
+    setRole(boss.user.id, 'admin');
+    /** @type {Record<string, any>} */
+    const users = {};
+    for (const name of names) {
+      users[name] = (await post(app, '/auth/register', { nickname: `${prefix}-${name}`, password: PASSWORD })).json();
+    }
+    return { app, boss, users };
+  }
+
+  it('非管理员访问账号列表 / 写接口都是 403 FORBIDDEN', async () => {
+    const { app, users } = await seed('t1', ['plain']);
+    const token = users.plain.accessToken;
+
+    const list = await get(app, '/auth/admin/users', token);
+    expect(list.statusCode).toBe(403);
+    expect(list.json().code).toBe('FORBIDDEN');
+
+    const upd = await patch(app, `/auth/admin/users/${users.plain.user.id}`, { disabled: true }, token);
+    expect(upd.statusCode).toBe(403);
+
+    const audit = await get(app, '/auth/admin/audit', token);
+    expect(audit.statusCode).toBe(403);
+  });
+
+  it('账号列表：按昵称搜索、分页、不泄露口令散列', async () => {
+    const { app, boss, users } = await seed('t2', ['alice', 'alice2', 'bob', 'carol']);
+    const all = await get(app, '/auth/admin/users?limit=2&offset=0', boss.accessToken);
+    expect(all.statusCode).toBe(200);
+    const page1 = all.json();
+    expect(page1.ok).toBe(true);
+    // 库是同一个 :memory:（本文件里所有用例共用），所以只校验下界，不写死条数
+    expect(page1.total >= 5).toBe(true);
+    expect(page1.users.length).toBe(2);
+    expect(page1.users[0].password_hash).toBeUndefined();
+    expect(page1.users[0].passwordHash).toBeUndefined();
+    expect(typeof page1.users[0].disabled).toBe('boolean');
+    expect(typeof page1.users[0].tokenVersion).toBe('number');
+
+    const page2 = (await get(app, '/auth/admin/users?limit=2&offset=2', boss.accessToken)).json();
+    expect(page2.users.length).toBe(2);
+    expect(page2.users[0].id).not.toBe(page1.users[0].id);
+
+    const found = (await get(app, `/auth/admin/users?q=${encodeURIComponent('t2-alice')}`, boss.accessToken)).json();
+    const names = found.users.map((u) => u.nickname);
+    expect(names).toContain('t2-alice');
+    expect(names).toContain('t2-alice2');
+    expect(names).not.toContain('t2-bob');
+    expect(users.bob.user.nickname).toBe('t2-bob');
+  });
+
+  it('提权：角色变更成功且目标旧令牌立即失效', async () => {
+    const { app, boss, users } = await seed('t3', ['promote']);
+    const target = users.promote;
+    const res = await patch(app, `/auth/admin/users/${target.user.id}`, { role: 'admin' }, boss.accessToken);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.role).toBe('admin');
+
+    // 角色变更会 bump token_version：旧 access 不能再用
+    const oldMe = await get(app, '/auth/me', target.accessToken);
+    expect(oldMe.statusCode).toBe(401);
+    expect(oldMe.json().code).toBe('AUTH_CREDENTIALS_CHANGED');
+
+    // 重新登录后是管理员
+    const login = (await post(app, '/auth/login', { nickname: 't3-promote', password: PASSWORD })).json();
+    expect(login.user.role).toBe('admin');
+
+    // 列表里也能看到新角色
+    const list = (await get(app, `/auth/admin/users?q=t3-promote`, boss.accessToken)).json();
+    expect(list.users[0].role).toBe('admin');
+  });
+
+  it('禁用后登不上且旧令牌失效；重新启用后恢复', async () => {
+    const { app, boss, users } = await seed('t4', ['banme']);
+    const target = users.banme;
+
+    const off = await patch(app, `/auth/admin/users/${target.user.id}`, { disabled: true }, boss.accessToken);
+    expect(off.statusCode).toBe(200);
+    expect(off.json().user.disabled).toBe(true);
+
+    // 禁用会 bump token_version，旧 access 直接被拒（disabled 优先报 AUTH_DISABLED）
+    const oldMe = await get(app, '/auth/me', target.accessToken);
+    expect(oldMe.statusCode).toBe(403);
+    expect(oldMe.json().code).toBe('AUTH_DISABLED');
+    const login = await post(app, '/auth/login', { nickname: 't4-banme', password: PASSWORD });
+    expect(login.statusCode).toBe(403);
+    expect(login.json().code).toBe('AUTH_DISABLED');
+
+    const on = await patch(app, `/auth/admin/users/${target.user.id}`, { disabled: false }, boss.accessToken);
+    expect(on.statusCode).toBe(200);
+    expect((await post(app, '/auth/login', { nickname: 't4-banme', password: PASSWORD })).statusCode).toBe(200);
+  });
+
+  it('不能改自己（CANNOT_MODIFY_SELF）；目标不存在 404；空 patch 400', async () => {
+    const { app, boss } = await seed('t5', []);
+    const self = await patch(app, `/auth/admin/users/${boss.user.id}`, { disabled: true }, boss.accessToken);
+    expect(self.statusCode).toBe(400);
+    expect(self.json().code).toBe('CANNOT_MODIFY_SELF');
+
+    const ghost = await patch(app, '/auth/admin/users/u_ghost', { role: 'user' }, boss.accessToken);
+    expect(ghost.statusCode).toBe(404);
+    expect(ghost.json().code).toBe('USER_NOT_FOUND');
+
+    const empty = await patch(app, `/auth/admin/users/${boss.user.id}`, {}, boss.accessToken);
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json().code).toBe('INVALID_PAYLOAD');
+  });
+
+  it('审计日志：记录管理员操作且不泄露敏感字段', async () => {
+    const { app, boss, users } = await seed('t6', ['watched']);
+    await patch(app, `/auth/admin/users/${users.watched.user.id}`, { disabled: true }, boss.accessToken);
+
+    const res = await get(app, '/auth/admin/audit?limit=20', boss.accessToken);
+    expect(res.statusCode).toBe(200);
+    const entries = res.json().entries;
+    expect(Array.isArray(entries)).toBe(true);
+    expect(entries.length > 0).toBe(true);
+    const actions = entries.map((e) => e.action);
+    expect(actions).toContain('admin-update');
+    const first = entries[0];
+    expect(typeof first.at).toBe('number');
+    expect(typeof first.ok).toBe('boolean');
+    expect(first.password_hash).toBeUndefined();
+    expect(first.token_hash).toBeUndefined();
+
+    // 越界 limit 会被夹到区间内，不会 500
+    expect((await get(app, '/auth/admin/audit?limit=99999', boss.accessToken)).statusCode).toBe(200);
+    expect((await get(app, '/auth/admin/audit?limit=-3', boss.accessToken)).statusCode).toBe(200);
   });
 });

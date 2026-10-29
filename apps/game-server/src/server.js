@@ -16,7 +16,8 @@ import { cleanupExpiredTokens } from './auth/session.js';
 initDb(env.AUTH_DB_PATH);
 cleanupExpiredTokens();
 
-const app = Fastify({ logger: true });
+// 反向代理后面（Nginx/Caddy）要信任 X-Forwarded-For，否则限流按代理 IP 计算
+const app = Fastify({ logger: true, trustProxy: env.TRUST_PROXY });
 await app.register(cors, { origin: true, credentials: true });
 await app.register(helmet);
 

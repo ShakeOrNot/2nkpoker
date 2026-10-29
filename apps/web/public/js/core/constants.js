@@ -58,6 +58,8 @@ export const ERROR_TEXT = {
   AUTH_DISABLED: '账号已被禁用，请联系管理员',
   FORBIDDEN: '你没有权限做这个操作',
   USER_NOT_FOUND: '没有这个账号',
+  CANNOT_MODIFY_SELF: '不能修改自己的账号（改自己请用「改口令」）',
+  LAST_ADMIN: '至少要保留一个管理员',
   NEED_PASSWORD: '请输入口令',
   OFFLINE_NO_ACCOUNT: '离线练习不需要注册',
   TABLE_NOT_FOUND: '牌局不存在，可能已被解散',

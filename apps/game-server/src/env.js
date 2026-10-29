@@ -38,6 +38,21 @@ const schema = z.object({
   AUTH_LOCK_MS: z.coerce.number().default(5 * 60 * 1000),
   AUTH_WINDOW_MS: z.coerce.number().default(5 * 60 * 1000),
   AUTH_IP_MAX_ATTEMPTS: z.coerce.number().default(20),
+
+  /**
+   * 放在 Nginx/Caddy 等反向代理后面时，需要信任代理传来的 X-Forwarded-For，
+   * 否则限流会把所有用户当成同一个 IP。
+   * 取值：空/false = 不信任；true/1 = 全信任；'loopback' 或逗号分隔 IP = 只信任这些来源。
+   */
+  TRUST_PROXY: z
+    .string()
+    .default('')
+    .transform((v) => {
+      const s = String(v).trim();
+      if (!s || ['0', 'false', 'no', 'off'].includes(s.toLowerCase())) return false;
+      if (['1', 'true', 'yes', 'on'].includes(s.toLowerCase())) return true;
+      return s;
+    }),
 });
 
 const parsed = schema.safeParse(process.env);

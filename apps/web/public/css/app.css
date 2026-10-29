@@ -1644,3 +1644,125 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
 
 .auth-banner.visible { display: flex; }
 .auth-banner-text { flex: 1; }
+
+/* ============================================================
+   11. 管理面板（/admin 视图）：账号列表 + 审计日志
+   ============================================================ */
+
+.view-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px max(12px, var(--safe-left)) 24px max(12px, var(--safe-right));
+  max-width: 980px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.admin-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+
+.admin-tabs .btn.active {
+  background: var(--felt-deep, #12452f);
+  color: #eafff2;
+  border-color: var(--accent, #37c98b);
+}
+
+.admin-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-panel.hidden { display: none; }
+
+.admin-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-search .input {
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+
+.admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.admin-cell { min-width: 0; }
+
+.admin-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.admin-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.admin-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.admin-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.admin-empty {
+  margin: 0;
+  padding: 18px 4px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.admin-page-label {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 90px;
+  text-align: center;
+}

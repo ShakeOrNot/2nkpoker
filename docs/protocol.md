@@ -12,7 +12,9 @@
 
 一条命令同时起两个进程：`node start.mjs`（或双击 `启动.cmd`）。端口来自仓库根 `.env` 的 `PORT` / `WEB_PORT`，可用 `--game-port` / `--port` 覆盖。
 
-`apps/web/dev-server.mjs` 会把 `/api/*`、`/socket.io/*`、`/tables*`、`/dev/*`、`/health`、`/ready` 代理到后端，所以浏览器里前后端同源，不需要 CORS。
+`apps/web/dev-server.mjs` 会把 `/api/*`、`/socket.io/*`、`/tables*`、`/auth/*`、`/dev/*`、`/health`、`/ready` 代理到后端，所以浏览器里前后端同源，不需要 CORS。
+
+> 上公网时后端一般放在 Nginx/Caddy 后面，此时要在 `.env` 里设 `TRUST_PROXY=1`（或 `loopback`），否则 Fastify 只看到代理的 IP：登录限流会把所有用户算成同一个 IP，审计日志里的 IP 也没意义。
 
 ## 2. 鉴权
 
@@ -36,6 +38,28 @@
 - 开发环境：`POST /dev/token` 仍可用（`NODE_ENV=production` 或 `ALLOW_DEV_TOKEN=0` 时关闭），签"无名令牌"给脚本/联调用
 - 校验失败：连接被拒绝，客户端收到 `connect_error.message === "AUTH_FAILED"`
 
+### 2.3 管理员接口
+
+管理员身份只存在数据库 `users.role` 里，没有"注册即管理员"的入口；提权用运维脚本
+`node apps/game-server/scripts/reset-password.mjs --make-admin <昵称>`（降回普通账号用 `--make-user`）。
+
+| 方法 | 路径 | 说明 |
+| :--- | :--- | :--- |
+| GET | `/auth/admin/users?q=&limit=&offset=` | 账号列表：昵称模糊搜索（`q` ≤40 字符）、`limit` 1~200（默认 50）、`offset` ≥0 → `{ ok, total, users }` |
+| PATCH | `/auth/admin/users/:id` | `{ role?: 'user'|'admin', disabled?: boolean }`（至少一项）→ `{ ok, user }` |
+| POST | `/auth/admin/reset-password` | `{ nickname, newPassword }` → `{ ok: true }` |
+| GET | `/auth/admin/audit?limit=` | 审计日志（`limit` 1~200，默认 50，按时间倒序）→ `{ ok, entries }` |
+
+规则：
+
+- 四个接口都要 `Authorization: Bearer <access>` 且 `role=admin`，否则 403 `FORBIDDEN`（并写一条 `admin-denied` 审计）
+- 不能修改自己（400 `CANNOT_MODIFY_SELF`，改自己请走 `/auth/change-password`）
+- 不能把最后一个启用的管理员降权/禁用（400 `LAST_ADMIN`）
+- 改角色 / 禁用 / 重置口令都会 `token_version + 1` 并撤销该账号全部 refresh token，目标需要重新登录
+- 被禁用账号的旧 access 调 `/auth/me` 返回 403 `AUTH_DISABLED`
+- 审计条目字段：`{ at: number（毫秒）, action, nickname, ip, ok: boolean }`；`action` 目前有 `register` `login` `login-failed` `refresh` `logout` `change-password` `admin-reset` `admin-update` `admin-denied`
+- 前端入口：大厅右上角「管理」（仅 `user.role === 'admin'` 可见），对应视图 `views/admin.js`
+
 ## 3. HTTP 接口
 
 | 方法 | 路径 | 说明 |
@@ -49,6 +73,9 @@
 | GET | `/auth/me` | `Authorization: Bearer <access>` → `{ ok, user }` |
 | POST | `/auth/change-password` | `{ oldPassword, newPassword }`（需 Bearer）→ 新会话 |
 | POST | `/auth/admin/reset-password` | `{ nickname, newPassword }`（需 Bearer + `role=admin`）→ `{ ok: true }` |
+| GET | `/auth/admin/users` | 管理员账号列表，见 2.3 |
+| PATCH | `/auth/admin/users/:id` | 管理员改角色/禁用，见 2.3 |
+| GET | `/auth/admin/audit` | 审计日志，见 2.3 |
 | GET | `/tables` | `{ tables: TableSummary[] }`，新建的在前；空桌不列出（`POST /tables` 显式创建过的除外） |
 | GET | `/tables/:tableId` | `{ ok: true, table: TableSummary }`；不存在时 404 + `{ ok: false, code: 'TABLE_NOT_FOUND' }` |
 | POST | `/tables` | 创建/取回牌局，见下 |
@@ -228,7 +255,9 @@ type HandResult = {
 | `AUTH_CREDENTIALS_CHANGED` | 口令已变更，旧 access token 失效 | 口令已变更，请重新登录 |
 | `AUTH_DISABLED` | 账号被管理员禁用 | 账号已被禁用，请联系管理员 |
 | `FORBIDDEN` | 普通账号调用了管理员接口 | 你没有权限做这个操作 |
-| `USER_NOT_FOUND` | 管理员重置口令时目标账号不存在 | 没有这个账号 |
+| `USER_NOT_FOUND` | 管理员操作的目标账号不存在 | 没有这个账号 |
+| `CANNOT_MODIFY_SELF` | 管理员对自己执行改角色/禁用 | 不能修改自己的账号（改自己请用「改口令」） |
+| `LAST_ADMIN` | 会消灭最后一个启用管理员的降权/禁用 | 至少要保留一个管理员 |
 | `RATE_LIMITED` | 同 IP 失败过于频繁（429） | 操作太快了，稍等一下 |
 | `INVALID_PAYLOAD` | zod 校验失败（字段缺失/越界） | 请求格式不对，请刷新页面重试 |
 | `TABLE_NOT_FOUND` | 牌局不存在 | 牌局不存在，可能已被解散 |

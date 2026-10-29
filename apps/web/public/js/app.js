@@ -8,6 +8,7 @@ import { LoginView } from './views/login.js';
 import { LobbyView } from './views/lobby.js';
 import { WaitingView } from './views/waiting.js';
 import { TableView } from './views/table.js';
+import { AdminView } from './views/admin.js';
 
 const store = new Store();
 
@@ -19,6 +20,7 @@ const views = {
   lobby: new LobbyView(store),
   waiting: new WaitingView(store),
   table: new TableView(store),
+  admin: new AdminView(store),
 };
 
 let current = '';

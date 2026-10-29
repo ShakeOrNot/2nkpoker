@@ -135,11 +135,47 @@ export function setRole(userId, role) {
 }
 
 /**
- * @param {number} [limit]
+ * 列出账号（管理员面板用）。
+ * 兼容旧调用 listUsers(200)：数字参数按 limit 处理。
+ * @param {{ q?: string, limit?: number, offset?: number }|number} [options]
  * @returns {UserRow[]}
  */
-export function listUsers(limit = 100) {
+export function listUsers(options = {}) {
+  const opts = typeof options === 'number' ? { limit: options } : options;
+  const q = String(opts.q ?? '').trim();
+  const limit = Math.max(1, Math.min(500, Number(opts.limit) || 100));
+  const offset = Math.max(0, Number(opts.offset) || 0);
+  const db = getDb();
+  if (q) {
+    return /** @type {UserRow[]} */ (
+      db
+        .prepare('SELECT * FROM users WHERE nickname LIKE ? COLLATE NOCASE ORDER BY created_at ASC LIMIT ? OFFSET ?')
+        .all(`%${q}%`, limit, offset)
+    );
+  }
   return /** @type {UserRow[]} */ (
-    getDb().prepare('SELECT * FROM users ORDER BY created_at ASC LIMIT ?').all(limit)
+    db.prepare('SELECT * FROM users ORDER BY created_at ASC LIMIT ? OFFSET ?').all(limit, offset)
   );
+}
+
+/**
+ * 账号总数（配合分页）
+ * @param {string} [q]
+ * @returns {number}
+ */
+export function countUsers(q = '') {
+  const keyword = String(q ?? '').trim();
+  const row = keyword
+    ? getDb().prepare('SELECT COUNT(*) AS n FROM users WHERE nickname LIKE ? COLLATE NOCASE').get(`%${keyword}%`)
+    : getDb().prepare('SELECT COUNT(*) AS n FROM users').get();
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * 可用管理员数量（防止把最后一个管理员降权/禁用）
+ * @returns {number}
+ */
+export function countAdmins() {
+  const row = getDb().prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0").get();
+  return Number(row?.n ?? 0);
 }

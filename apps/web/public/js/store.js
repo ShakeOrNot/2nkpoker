@@ -40,22 +40,25 @@ import { createMockSocket } from './net/mock-socket.js';
 import { RemoteProtocolSocket, needsRemoteAdapter } from './net/remote-protocol.js';
 import { upsertRecord } from './net/roomStore.js';
 
-/** @typedef {'login'|'lobby'|'waiting'|'table'} Phase */
+/** @typedef {'login'|'lobby'|'waiting'|'table'|'admin'} Phase */
 
 const MAX_LOG_LINES = 120;
 
 /**
  * localStorage 里的登录态
- * @returns {{ token: string, userId: string, nickname: string, expiresAt: number }|null}
+ * @returns {{ token: string, refreshToken: string, userId: string, nickname: string, expiresAt: number, user: any }|null}
  */
 function loadSession() {
   const raw = readStore(STORAGE_KEYS.session);
   if (!raw?.token) return null;
   return {
     token: String(raw.token),
+    refreshToken: String(raw.refreshToken ?? ''),
     userId: String(raw.userId ?? ''),
     nickname: String(raw.nickname ?? ''),
     expiresAt: Number(raw.expiresAt ?? 0),
+    /** 登录用户信息（含 role），刷新页面后靠它判断是不是管理员 */
+    user: raw.user && typeof raw.user === 'object' ? raw.user : null,
   };
 }
 
@@ -306,12 +309,19 @@ export class Store {
 
     let session;
     if (manualToken) {
-      session = { token: manualToken.trim(), userId: name, nickname: name, expiresAt: 0, refreshToken: '' };
+      session = { token: manualToken.trim(), userId: name, nickname: name, expiresAt: 0, refreshToken: '', user: null };
     } else if (this.state.offline) {
-      session = { token: 'offline', userId: `local_${name}`, nickname: name, expiresAt: Date.now() + TOKEN_TTL_MS, refreshToken: '' };
+      session = {
+        token: 'offline',
+        userId: `local_${name}`,
+        nickname: name,
+        expiresAt: Date.now() + TOKEN_TTL_MS,
+        refreshToken: '',
+        user: { id: `local_${name}`, nickname: name, role: 'user' },
+      };
     } else if (this.usesRemoteAdapter()) {
       // 适配模式下后端不做鉴权：只用昵称做身份，不需要 token
-      session = { token: '', userId: name, nickname: name, expiresAt: 0, refreshToken: '' };
+      session = { token: '', userId: name, nickname: name, expiresAt: 0, refreshToken: '', user: null };
       this.log('目标服务器不需要登录，直接用昵称进入（协议适配模式）');
     } else {
       const res = await api.login(name, password);
@@ -325,6 +335,7 @@ export class Store {
         userId: res.userId ?? name,
         nickname: res.nickname ?? name,
         expiresAt: res.expiresAt ?? Date.now() + TOKEN_TTL_MS,
+        user: res.user ?? null,
       };
     }
 
@@ -357,6 +368,7 @@ export class Store {
       userId: res.userId ?? name,
       nickname: res.nickname ?? name,
       expiresAt: res.expiresAt ?? Date.now() + TOKEN_TTL_MS,
+      user: res.user ?? null,
     });
     this.patch({ busy: false });
     this.log(`注册成功，欢迎 ${name}`);
@@ -417,6 +429,7 @@ export class Store {
       expiresAt: res.expiresAt,
       nickname: res.nickname || session.nickname,
       userId: res.userId || session.userId,
+      user: res.user ?? session.user ?? null,
     };
     this.applySession(next);
     return true;
@@ -452,6 +465,7 @@ export class Store {
       expiresAt: res.expiresAt,
       nickname: res.nickname || session.nickname,
       userId: res.userId || session.userId,
+      user: res.user ?? session.user ?? null,
     });
     this.log('口令已修改');
     return { ok: true };
@@ -476,6 +490,71 @@ export class Store {
     });
     this.patchRoom({ tableId: '', snapshot: null, actionRequest: null, lastResult: null, log: [], notice: '' });
     if (message) toast(message, 'info');
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 管理面板（只有 role=admin 可用；服务端还有一道 requireAdmin）
+   * ------------------------------------------------------------------ */
+
+  /** 当前账号是不是管理员 */
+  get isAdmin() {
+    return this.state.session?.user?.role === 'admin';
+  }
+
+  /** 进管理面板（从大厅进）；不是管理员就提示并留在原地 */
+  openAdmin() {
+    if (!this.isAdmin) {
+      this.reportError('只有管理员可以打开管理面板');
+      return false;
+    }
+    this.patch({ phase: 'admin' });
+    return true;
+  }
+
+  /** 退出管理面板回大厅 */
+  exitAdmin() {
+    this.patch({ phase: 'lobby' });
+  }
+
+  /**
+   * 账号列表（服务端分页 + 搜索）
+   * @param {{ q?: string, limit?: number, offset?: number }} [options]
+   */
+  async adminListUsers(options = {}) {
+    const token = this.state.session?.token;
+    if (!this.isAdmin || !token) return { ok: false, code: 'FORBIDDEN', message: '只有管理员可以查看账号' };
+    return api.adminUsers(token, options);
+  }
+
+  /**
+   * 改角色 / 禁用启用
+   * @param {string} id
+   * @param {{ role?: 'user'|'admin', disabled?: boolean }} patch
+   */
+  async adminUpdateUser(id, patch) {
+    const token = this.state.session?.token;
+    if (!this.isAdmin || !token) return { ok: false, code: 'FORBIDDEN', message: '只有管理员可以修改账号' };
+    return api.adminUpdateUser(token, id, patch);
+  }
+
+  /**
+   * 重置某个账号的口令（忘记口令时用）
+   * @param {string} nickname
+   * @param {string} newPassword
+   */
+  async adminResetPassword(nickname, newPassword) {
+    const token = this.state.session?.token;
+    if (!this.isAdmin || !token) return { ok: false, code: 'FORBIDDEN', message: '只有管理员可以重置口令' };
+    const res = await api.adminResetPassword(token, nickname, newPassword);
+    if (res.ok) this.log(`已重置 ${nickname} 的口令`);
+    return res;
+  }
+
+  /** 审计日志 @param {number} [limit] */
+  async adminAudit(limit = 50) {
+    const token = this.state.session?.token;
+    if (!this.isAdmin || !token) return { ok: false, code: 'FORBIDDEN', message: '只有管理员可以看审计日志' };
+    return api.adminAudit(token, limit);
   }
 
   /**

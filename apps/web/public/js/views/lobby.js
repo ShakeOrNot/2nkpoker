@@ -58,6 +58,13 @@ export class LobbyView extends View {
     header.appendChild(who);
 
     const actions = node('header-actions');
+    // 管理入口：只有 role=admin 才显示（非管理员即使点到也会被 store 拒绝）
+    this.adminBtn = button({
+      label: '管理',
+      className: 'btn-ghost btn-sm',
+      onClick: () => this.store.openAdmin(),
+    });
+    actions.appendChild(this.adminBtn);
     this.passwordBtn = button({
       label: '改口令',
       className: 'btn-ghost btn-sm',
@@ -503,8 +510,9 @@ export class LobbyView extends View {
     setText(this.userLabel, state.session?.nickname ? `${state.session.nickname}` : '未登录');
     setDisabled(this.createBtn, Boolean(state.busy));
     setText(this.logoutBtn, state.offline ? '退出离线' : '退出');
-    // 离线练习没有账号，改口令按钮直接藏起来
+    // 离线练习没有账号，改口令/管理按钮直接藏起来
     this.passwordBtn.classList.toggle('hidden', Boolean(state.offline));
+    this.adminBtn.classList.toggle('hidden', Boolean(state.offline) || state.session?.user?.role !== 'admin');
 
     const offlineTag = state.offline ? '（离线练习）' : '';
     setText(

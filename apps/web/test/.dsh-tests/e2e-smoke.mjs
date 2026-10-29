@@ -223,7 +223,7 @@ function checkViewIntegrity(phase, requiredButtons = []) {
 }
 
 console.log('界面装配：');
-step('4 个视图都已实例化', Object.keys(views).length === 4, Object.keys(views).join(','));
+step('5 个视图都已实例化', Object.keys(views).length === 5, Object.keys(views).join(','));
 step(
   '启动后停在登录页',
   store.state.phase === 'login' && activeText().includes('昵称') && activeText().includes('口令'),

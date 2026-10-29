@@ -147,7 +147,7 @@ const modules = [
   'core/constants.js', 'core/config.js', 'core/dom.js', 'core/format.js', 'core/logic.js',
   'net/api.js', 'net/socket.js', 'net/roomStore.js', 'net/mock-socket.js',
   'views/base.js', 'views/cards.js', 'views/login.js', 'views/lobby.js',
-  'views/waiting.js', 'views/controls.js', 'views/table.js',
+  'views/waiting.js', 'views/controls.js', 'views/table.js', 'views/admin.js',
   'store.js', 'app.js',
 ];
 
@@ -159,6 +159,7 @@ const required = {
   'views/table.js': ['TableView'],
   'views/login.js': ['LoginView'],
   'views/lobby.js': ['LobbyView'],
+  'views/admin.js': ['AdminView'],
   'views/waiting.js': ['WaitingView', 'streetText'],
   'views/controls.js': ['ControlsView'],
   'views/cards.js': ['cardEl', 'cardRow', 'boardEl', 'chipText'],
@@ -257,6 +258,34 @@ if (!failed) {
   } catch (err) {
     failed++;
     console.log(`  FAIL  渲染结算浮层: ${err?.message ?? err}`);
+  }
+
+  // 管理面板：管理员会话下能挂载/渲染（列表接口用桩返回一条账号）
+  try {
+    const appStore = globalThis.window.__poker.store;
+    appStore.state.session = { ...(appStore.state.session ?? {}), user: { id: 'me', nickname: '我', role: 'admin' } };
+    const fakeUsers = [
+      { id: 'u2', nickname: '被改者', role: 'user', disabled: false, tokenVersion: 0 },
+    ];
+    appStore.adminListUsers = async () => ({ ok: true, total: fakeUsers.length, users: fakeUsers });
+    appStore.adminAudit = async () => ({ ok: true, entries: [] });
+    appStore.state.phase = 'admin';
+    appStore.onChange();
+    await new Promise((r) => setTimeout(r, 20));
+
+    const adminView = globalThis.window.__poker.views.admin;
+    if (adminView.list.querySelector('.admin-name')?.textContent !== '被改者') {
+      throw new Error('账号列表没有渲染出用户名');
+    }
+    const resetBtn = adminView.list.querySelector('.admin-reset-btn');
+    if (resetBtn?.textContent !== '重置口令') throw new Error(`口令按钮文案不对：${resetBtn?.textContent ?? '无'}`);
+    adminView.openReset(fakeUsers[0]);
+    if (!adminView.pwOverlay.classList.contains('visible')) throw new Error('点击后没有弹出改口令弹窗');
+    adminView.closeReset();
+    console.log('  ok    渲染阶段 admin（列表 + 口令弹窗）');
+  } catch (err) {
+    failed++;
+    console.log(`  FAIL  渲染阶段 admin: ${err?.message ?? err}`);
   }
 
   // 快捷键：actionContext 能出快捷按钮

@@ -110,6 +110,12 @@ node apps/game-server/scripts/reset-password.mjs --disable <昵称>
 node apps/game-server/scripts/reset-password.mjs --list
 ```
 
+**管理员面板**（`role=admin` 的账号在大厅右上角能看到「管理」）：
+
+- 账号：按昵称搜索、翻页；看角色 / 是否禁用 / 令牌版本
+- 操作：提为管理员 / 降为玩家、禁用 / 启用、重置口令（都要二次确认，且不能改自己）
+- 审计日志：最近 50 条登录、改密、管理员操作，带时间和 IP
+
 ### 5. 分进程调试（可选）
 
 需要看两边日志时，开两个终端：
@@ -133,6 +139,7 @@ node apps/web/test/run-tests.mjs
 
 ```bash
 node scripts/auth-smoke.js          # 注册 → 登录 → 刷新 → 改密 → 登出（真 HTTP）
+node scripts/admin-smoke.js         # 管理员：列表 / 搜索 / 禁用 / 提权 / 审计（真 HTTP）
 node scripts/play-smoke.js          # 两人真实打完一手
 node scripts/table-smoke.js         # 入座/站起/快照同步
 node scripts/seat-smoke.js          # 换座 + 手牌中离桌（本手结束后生效）
@@ -165,10 +172,14 @@ NODE_ENV=production node apps/game-server/src/server.js   # 记得配好 .env �
 
 - `NODE_ENV=production` 时 `POST /dev/token` 不会挂载，JWT 必须由外部 auth 服务签发
 - 牌局状态在内存里，**重启会清空所有牌局和筹码**；多实例部署前必须先做持久化/粘性会话
+- 反向代理后面要设 `TRUST_PROXY=1`（否则登录限流按代理 IP 算、审计 IP 全一样）
+- 用户库 `var/2nkpoker.db` 要放持久卷，并每天备份：`node scripts/backup-db.mjs`
+- 完整清单见 [云服务器部署清单](docs/deploy.md)
 
 ## 📚 文档
 
 - [协议与接口约定](docs/protocol.md)：HTTP、WebSocket、数据模型、错误码、引擎工具清单、已知限制
+- [云服务器部署清单](docs/deploy.md)：上公网前逐项打勾的检查表（密钥、HTTPS、反代、备份、管理员入口）
 - [前端说明](apps/web/README.md)：目录结构、调试、离线/远端两种传输
 
 ## 👥 团队分工

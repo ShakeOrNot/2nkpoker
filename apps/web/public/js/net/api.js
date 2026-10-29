@@ -60,23 +60,60 @@ export async function request(url, options = {}) {
 }
 
 /**
- * 发一个 JSON POST，并把服务端错误码原样带回来
+ * 发一个 JSON 请求（POST/PATCH/DELETE），并把服务端错误码原样带回来
+ * @param {'POST'|'PATCH'|'DELETE'} method
  * @param {string} path
  * @param {any} body
  * @param {{ timeoutMs?: number, token?: string }} [options]
  * @returns {Promise<{ ok: boolean, data?: any, status: number, code?: string, message?: string }>}
  */
-async function postJson(path, body, options = {}) {
+async function sendJson(method, path, body, options = {}) {
   const url = `${serverConfig.apiBase}${path}`;
   /** @type {Record<string, string>} */
   const headers = { 'Content-Type': 'application/json' };
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
   const res = await request(url, {
-    method: 'POST',
+    method,
     headers,
     body: JSON.stringify(body ?? {}),
     timeoutMs: options.timeoutMs ?? 10000,
   });
+  if (!res.ok) {
+    if (res.status === 0) {
+      return { ok: false, status: 0, code: 'NETWORK', message: `${errorText('NETWORK')}（${url}）` };
+    }
+    const data = res.data ?? {};
+    return {
+      ok: false,
+      status: res.status,
+      code: data.code ?? 'AUTH_FAILED',
+      message: data.message ?? errorText(data.code),
+    };
+  }
+  return { ok: true, status: res.status, data: res.data ?? {} };
+}
+
+/**
+ * 发 JSON POST（登录/注册/改口令/管理操作都用它）
+ * @param {string} path
+ * @param {any} body
+ * @param {{ timeoutMs?: number, token?: string }} [options]
+ */
+async function postJson(path, body, options = {}) {
+  return sendJson('POST', path, body, options);
+}
+
+/**
+ * 带 token 的 GET（管理面板用）
+ * @param {string} path
+ * @param {{ timeoutMs?: number, token?: string }} [options]
+ */
+async function getJson(path, options = {}) {
+  const url = `${serverConfig.apiBase}${path}`;
+  /** @type {Record<string, string>} */
+  const headers = {};
+  if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  const res = await request(url, { headers, timeoutMs: options.timeoutMs ?? 10000 });
   if (!res.ok) {
     if (res.status === 0) {
       return { ok: false, status: 0, code: 'NETWORK', message: `${errorText('NETWORK')}（${url}）` };
@@ -262,6 +299,75 @@ export async function createRoom(cfg) {
     return { ok: false, code: 'ROOM_LIST_UNAVAILABLE', message: res.status ? `HTTP ${res.status}` : res.error };
   }
   return { ok: true, room: res.data?.table ?? res.data };
+}
+
+/* ================= 管理面板（只有 role=admin 能调） ================= */
+
+const NO_TOKEN = { ok: false, code: 'NO_TOKEN', message: '需要管理员登录' };
+
+/**
+ * 账号列表（服务端分页 + 昵称搜索）
+ * GET /auth/admin/users?q=&limit=&offset= → { ok, total, users }
+ * @param {string} token
+ * @param {{ q?: string, limit?: number, offset?: number }} [options]
+ */
+export async function adminUsers(token, options = {}) {
+  if (!token) return { ...NO_TOKEN, users: [], total: 0 };
+  const qs = new URLSearchParams({
+    limit: String(options.limit ?? 50),
+    offset: String(options.offset ?? 0),
+  });
+  const q = String(options.q ?? '').trim();
+  if (q) qs.set('q', q);
+  const res = await getJson(`/auth/admin/users?${qs}`, { token });
+  if (!res.ok) return { ok: false, code: res.code, message: res.message, users: [], total: 0 };
+  return {
+    ok: true,
+    total: Number(res.data.total ?? 0),
+    users: Array.isArray(res.data.users) ? res.data.users : [],
+  };
+}
+
+/**
+ * 改角色 / 禁用启用
+ * PATCH /auth/admin/users/:id { role?, disabled? } → { ok, user }
+ * @param {string} token
+ * @param {string} id
+ * @param {{ role?: 'user'|'admin', disabled?: boolean }} patch
+ */
+export async function adminUpdateUser(token, id, patch) {
+  if (!token) return NO_TOKEN;
+  const res = await sendJson('PATCH', `/auth/admin/users/${encodeURIComponent(String(id))}`, patch, { token });
+  if (!res.ok) return { ok: false, code: res.code, message: res.message };
+  return { ok: true, user: res.data.user ?? null };
+}
+
+/**
+ * 重置某个账号的口令（不需要旧口令）
+ * POST /auth/admin/reset-password { nickname, newPassword }
+ */
+export async function adminResetPassword(token, nickname, newPassword) {
+  if (!token) return NO_TOKEN;
+  const res = await postJson(
+    '/auth/admin/reset-password',
+    { nickname: String(nickname ?? '').trim(), newPassword },
+    { token, timeoutMs: 20000 }, // scrypt 要算一会儿
+  );
+  if (!res.ok) return { ok: false, code: res.code, message: res.message };
+  return { ok: true };
+}
+
+/**
+ * 审计日志
+ * GET /auth/admin/audit?limit= → { ok, entries }
+ * @param {string} token
+ * @param {number} [limit]
+ */
+export async function adminAudit(token, limit = 50) {
+  if (!token) return { ...NO_TOKEN, entries: [] };
+  const res = await getJson(`/auth/admin/audit?limit=${encodeURIComponent(String(limit))}`, { token });
+  if (!res.ok) return { ok: false, code: res.code, message: res.message, entries: [] };
+  return { ok: true, entries: Array.isArray(res.data.entries) ? res.data.entries : [] };
 }
 
 /**
