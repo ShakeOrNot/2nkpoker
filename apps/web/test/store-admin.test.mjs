@@ -196,6 +196,32 @@ describe('管理面板接口（store ↔ HTTP）', () => {
     expect(JSON.parse(calls[2].body).userId).toBe('u9');
   });
 
+  it('统计：adminStats 带搜索分页，myStats 走 /auth/me/stats', async () => {
+    const store = adminStore();
+    const calls = await withFetch(
+      (url) =>
+        url.includes('/auth/me/stats')
+          ? jsonResponse({ ok: true, stats: { hands: 3, vpipRate: 0.5, winRate: 0.3, showdownRate: 0.3, showdownWinRate: 0.5 } })
+          : jsonResponse({ ok: true, total: 1, stats: [{ nickname: '阿豪', hands: 3, vpipRate: 0.5 }] }),
+      async () => {
+        const list = await store.adminStats({ q: '阿', limit: 20, offset: 40 });
+        expect(list.ok).toBe(true);
+        expect(list.total).toBe(1);
+        expect(list.stats[0].nickname).toBe('阿豪');
+
+        const mine = await store.myStats();
+        expect(mine.ok).toBe(true);
+        expect(mine.stats.hands).toBe(3);
+      },
+    );
+    expect(calls[0].url).toContain('/auth/admin/stats');
+    expect(calls[0].url).toContain('limit=20');
+    expect(calls[0].url).toContain('offset=40');
+    expect(calls[0].url).toContain(`q=${encodeURIComponent('阿')}`);
+    expect(calls[1].url.endsWith('/auth/me/stats')).toBe(true);
+    expect(calls[1].headers.Authorization).toBe('Bearer access-abc');
+  });
+
   it('收到 table:closed / table:kicked 会清掉房间回大厅', () => {
     const store = adminStore();
     store.state.phase = 'table';

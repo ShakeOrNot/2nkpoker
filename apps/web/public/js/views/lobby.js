@@ -9,7 +9,7 @@
 
 import { View, button, labelled, node, setDisabled, setText, tag } from './base.js';
 import { toast, copyText } from '../core/dom.js';
-import { stakeText, ago } from '../core/format.js';
+import { stakeText, ago, percent } from '../core/format.js';
 import { BLIND_LEVELS, MAX_SEATS, MIN_BUY_IN, MAX_BUY_IN } from '../core/constants.js';
 import { defaultRoomConfig, normalizeRoomInput, isValidRoomId, shareUrl } from '../core/logic.js';
 import { loadRecords, mergeRooms, forgetRecord } from '../net/roomStore.js';
@@ -65,6 +65,13 @@ export class LobbyView extends View {
       onClick: () => this.store.openAdmin(),
     });
     actions.appendChild(this.adminBtn);
+    // 我的战绩：每个登录玩家只能看自己的
+    this.myStatsBtn = button({
+      label: '我的战绩',
+      className: 'btn-ghost btn-sm',
+      onClick: () => this.openStats(),
+    });
+    actions.appendChild(this.myStatsBtn);
     this.passwordBtn = button({
       label: '改口令',
       className: 'btn-ghost btn-sm',
@@ -121,6 +128,24 @@ export class LobbyView extends View {
       if (ev.target === this.pwOverlay) this.closePasswordModal();
     });
     this.root.appendChild(this.pwOverlay);
+
+    /* 我的战绩弹窗：只看自己的历史数据 */
+    this.statsOverlay = node('modal-overlay');
+    const statsCard = node('modal-card');
+    statsCard.appendChild(tag('h3', 'modal-title', '我的战绩'));
+    this.statsHint = tag('p', 'modal-hint', '加载中…');
+    statsCard.appendChild(this.statsHint);
+    this.statsBody = node('stats-grid');
+    statsCard.appendChild(this.statsBody);
+    const statsActions = node('modal-actions');
+    statsActions.appendChild(button({ label: '刷新', className: 'btn-ghost', onClick: () => void this.loadStats() }));
+    statsActions.appendChild(button({ label: '关闭', className: 'btn-primary', onClick: () => this.closeStats() }));
+    statsCard.appendChild(statsActions);
+    this.statsOverlay.appendChild(statsCard);
+    this.statsOverlay.addEventListener('click', (ev) => {
+      if (ev.target === this.statsOverlay) this.closeStats();
+    });
+    this.root.appendChild(this.statsOverlay);
 
     /* 模式切换 */
     const tabs = node('tabs');
@@ -503,6 +528,53 @@ export class LobbyView extends View {
     toast('口令已修改，其它设备需要重新登录', 'info');
   }
 
+  /* ---------------- 我的战绩 ---------------- */
+
+  openStats() {
+    if (this.store.state.offline) {
+      toast('离线练习没有账号战绩', 'info');
+      return;
+    }
+    this.statsOverlay.classList.add('visible');
+    void this.loadStats();
+  }
+
+  closeStats() {
+    this.statsOverlay.classList.remove('visible');
+  }
+
+  async loadStats() {
+    setText(this.statsHint, '加载中…');
+    this.statsBody.replaceChildren();
+    const res = await this.store.myStats();
+    if (!res.ok) {
+      setText(this.statsHint, res.message ?? '加载战绩失败');
+      return;
+    }
+    const stats = res.stats;
+    if (!stats || !stats.hands) {
+      setText(this.statsHint, '还没有打过牌，去牌桌打几手就有了');
+      return;
+    }
+    const net = Number(stats.net ?? 0);
+    const last = stats.lastPlayedAt ? ` · 最近 ${ago(Number(stats.lastPlayedAt))}` : '';
+    setText(this.statsHint, `共 ${stats.hands} 手 · 净 ${net >= 0 ? '+' : ''}${net} 筹码${last}`);
+
+    const items = [
+      ['入池率', percent(stats.vpipRate, stats.hands), `${stats.vpipHands ?? 0} 手主动入池`],
+      ['胜率', percent(stats.winRate, stats.hands), `${stats.wins ?? 0} 手净赢`],
+      ['摊牌率', percent(stats.showdownRate, stats.hands), `${stats.showdowns ?? 0} 手亮牌`],
+      ['摊牌胜率', percent(stats.showdownWinRate, stats.showdowns), `${stats.showdownWins ?? 0}/${stats.showdowns ?? 0} 亮牌局`],
+    ];
+    for (const [label, value, sub] of items) {
+      const cell = node('stats-item');
+      cell.appendChild(tag('div', 'stats-label', label));
+      cell.appendChild(tag('div', 'stats-value', value));
+      cell.appendChild(tag('div', 'stats-sub', sub));
+      this.statsBody.appendChild(cell);
+    }
+  }
+
   /**
    * @param {any} state
    */
@@ -510,8 +582,9 @@ export class LobbyView extends View {
     setText(this.userLabel, state.session?.nickname ? `${state.session.nickname}` : '未登录');
     setDisabled(this.createBtn, Boolean(state.busy));
     setText(this.logoutBtn, state.offline ? '退出离线' : '退出');
-    // 离线练习没有账号，改口令/管理按钮直接藏起来
+    // 离线练习没有账号，改口令/管理/战绩按钮直接藏起来
     this.passwordBtn.classList.toggle('hidden', Boolean(state.offline));
+    this.myStatsBtn.classList.toggle('hidden', Boolean(state.offline));
     this.adminBtn.classList.toggle('hidden', Boolean(state.offline) || state.session?.user?.role !== 'admin');
 
     const offlineTag = state.offline ? '（离线练习）' : '';

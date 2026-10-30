@@ -409,6 +409,37 @@ export async function adminKickUser(token, tableId, userId) {
 }
 
 /**
+ * 管理员：全站战绩（入池率/胜率/摊牌率/摊牌胜率）
+ * GET /auth/admin/stats?q=&limit=&offset= → { ok, total, stats }
+ */
+export async function adminStats(token, options = {}) {
+  if (!token) return { ...NO_TOKEN, stats: [], total: 0 };
+  const qs = new URLSearchParams({
+    limit: String(options.limit ?? 100),
+    offset: String(options.offset ?? 0),
+  });
+  if (options.q) qs.set('q', String(options.q));
+  const res = await getJson(`/auth/admin/stats?${qs}`, { token });
+  if (!res.ok) return { ok: false, code: res.code, message: res.message, stats: [], total: 0 };
+  return {
+    ok: true,
+    total: Number(res.data.total ?? 0),
+    stats: Array.isArray(res.data.stats) ? res.data.stats : [],
+  };
+}
+
+/**
+ * 我的战绩
+ * GET /auth/me/stats → { ok, stats }
+ */
+export async function myStats(token) {
+  if (!token) return NO_TOKEN;
+  const res = await getJson('/auth/me/stats', { token });
+  if (!res.ok) return { ok: false, code: res.code, message: res.message };
+  return { ok: true, stats: res.data.stats ?? null };
+}
+
+/**
  * 健康检查，给登录页做"服务器连通性"提示
  * @returns {Promise<boolean>}
  */

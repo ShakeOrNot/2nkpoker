@@ -20,7 +20,7 @@
 
 ### 2.1 账号口令
 
-- **昵称即登录名**：注册时昵称唯一（ASCII 大小写不敏感），2~20 个字符，只能用字母/数字/`_`/`-`/中文
+- **昵称即登录名**：注册时昵称唯一（ASCII 大小写不敏感），2~20 个字符，只能用字母/数字/`_`/`-`/`.`/`@`/中文（支持 `zgz@2nkpoker.com` 这种邮箱式登录名）
 - 口令用 `scrypt`（N=2^15, r=8, p=1，随机 16B salt）哈希后存 SQLite，**不存明文**
 - 用户库：`var/2nkpoker.db`（`AUTH_DB_PATH` 可改，`var/` 已被 gitignore）
 - 口令策略：≥8 位、≤72 位、不能纯数字、不能和昵称相同
@@ -52,6 +52,7 @@
 | GET | `/auth/admin/tables` | 所有牌桌 + 座位详情 → `{ ok, tables: [{ tableId, smallBlind, bigBlind, maxSeats, createdAt, hasHand, seats: [{ seat, userId, nickname, chips, ready, connected, leaving }] }] }` |
 | POST | `/auth/admin/tables/:tableId/close` | 强制解散牌局：通知房间 `table:closed` → 清掉桌子 → `{ ok, tableId }` |
 | POST | `/auth/admin/tables/:tableId/kick` | `{ userId }` 踢人：清座位 → 通知本人 `table:kicked` → `{ ok, tableId, seat }`；手牌进行中返回 409 `HAND_IN_PROGRESS` |
+| GET | `/auth/admin/stats?q=&limit=&offset=` | 全站战绩（每个账号一行）→ `{ ok, total, stats: [{ userId, nickname, role, hands, vpipHands, wins, showdowns, showdownWins, net, lastPlayedAt, vpipRate, winRate, showdownRate, showdownWinRate }] }` |
 
 规则：
 
@@ -62,7 +63,19 @@
 - 被禁用账号的旧 access 调 `/auth/me` 返回 403 `AUTH_DISABLED`
 - 牌桌管理：解散会清除计时器并删桌；踢人要求当前没有进行中的手牌（避免牌局卡死），目标不在桌上返回 404 `USER_NOT_IN_TABLE`
 - 审计条目字段：`{ at: number（毫秒）, action, nickname, ip, ok: boolean }`；`action` 目前有 `register` `login` `login-failed` `refresh` `logout` `change-password` `admin-reset` `admin-update` `admin-denied` `admin-close-table` `admin-kick`
-- 前端入口：大厅右上角「管理」（仅 `user.role === 'admin'` 可见），对应视图 `views/admin.js`；分「账号 / 牌桌 / 审计日志」三个页签
+- 前端入口：每个玩家在大厅右上角「我的战绩」里看自己的数据；管理员在「管理 → 统计」里看全站
+- 管理面板（仅 `user.role === 'admin'` 可见，视图 `views/admin.js`）分「账号 / 牌桌 / 统计 / 审计日志」四个页签
+
+**战绩口径**（`player_hands` 表，每手每参与者一行，结算时写入）：
+
+| 指标 | 定义 |
+| :--- | :--- |
+| `hands` | 参与的手牌数 |
+| `vpipRate` 入池率 | 翻牌前**主动投钱**（call/bet/raise/all_in）的手数 / 总手数；盲注、过牌、弃牌不算 |
+| `winRate` 胜率 | 本手净赢筹码 > 0 的手数 / 总手数 |
+| `showdownRate` 摊牌率 | 本手有亮牌（`result.revealed` 里有该座位）的手数 / 总手数 |
+| `showdownWinRate` 摊牌胜率 | 亮牌且净赢的手数 / 亮牌手数 |
+| `net` | 累计净筹码（payouts − totalCommitted） |
 
 ## 3. HTTP 接口
 
@@ -75,6 +88,7 @@
 | POST | `/auth/refresh` | `{ refreshToken }` → 新的一对令牌（旧 refresh 作废） |
 | POST | `/auth/logout` | `{ refreshToken }` → `{ ok: true }` |
 | GET | `/auth/me` | `Authorization: Bearer <access>` → `{ ok, user }` |
+| GET | `/auth/me/stats` | `Authorization: Bearer <access>` → `{ ok, stats }`（自己的历史战绩，见 2.3） |
 | POST | `/auth/change-password` | `{ oldPassword, newPassword }`（需 Bearer）→ 新会话 |
 | POST | `/auth/admin/reset-password` | `{ nickname, newPassword }`（需 Bearer + `role=admin`）→ `{ ok: true }` |
 | GET | `/auth/admin/users` | 管理员账号列表，见 2.3 |
@@ -83,6 +97,7 @@
 | GET | `/auth/admin/tables` | 管理员牌桌列表（含座位），见 2.3 |
 | POST | `/auth/admin/tables/:tableId/close` | 管理员解散牌局，见 2.3 |
 | POST | `/auth/admin/tables/:tableId/kick` | 管理员踢人，见 2.3 |
+| GET | `/auth/admin/stats` | 全站战绩（含入池率/胜率/摊牌率/摊牌胜率），见 2.3 |
 | GET | `/tables` | `{ tables: TableSummary[] }`，新建的在前；空桌不列出（`POST /tables` 显式创建过的除外） |
 | GET | `/tables/:tableId` | `{ ok: true, table: TableSummary }`；不存在时 404 + `{ ok: false, code: 'TABLE_NOT_FOUND' }` |
 | POST | `/tables` | 创建/取回牌局，见下 |

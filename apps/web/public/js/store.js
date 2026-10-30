@@ -590,6 +590,23 @@ export class Store {
   }
 
   /**
+   * 全站战绩（管理员）
+   * @param {{ q?: string, limit?: number, offset?: number }} [options]
+   */
+  async adminStats(options = {}) {
+    const token = this.state.session?.token;
+    if (!this.isAdmin || !token) return { ok: false, code: 'FORBIDDEN', message: '只有管理员可以看战绩', stats: [], total: 0 };
+    return api.adminStats(token, options);
+  }
+
+  /** 我的战绩 */
+  async myStats() {
+    const token = this.state.session?.token;
+    if (!token) return { ok: false, code: 'AUTH_FAILED', message: '请先登录' };
+    return api.myStats(token);
+  }
+
+  /**
    * 管理员解散了当前牌局：清掉房间状态回大厅
    * @param {any} payload
    */
@@ -705,15 +722,29 @@ export class Store {
     this.socket = transport;
     transport.setHandlers(this.buildHandlers());
 
-    const res = await transport.connect({
+    let res = await transport.connect({
       wsBase: this.state.serverConfig.wsBase,
       token: active.token,
     });
 
+    // 握手被拒（AUTH_FAILED 多半是 access 刚好过期，或服务端重启后计时偏差）：
+    // 先自动续期一次再重连，别直接把用户踢回登录页。
+    if (!res.ok && isAuthError(String(res.code)) && this.state.session?.refreshToken) {
+      const refreshed = await this.refreshAccessToken();
+      if (refreshed) {
+        res = await transport.connect({
+          wsBase: this.state.serverConfig.wsBase,
+          token: this.state.session?.token ?? '',
+        });
+      }
+    }
+
     if (!res.ok) {
-      this.patch({ connection: 'offline' });
+      this.patch({ connection: 'idle' });
       if (isAuthError(String(res.code))) {
-        this.logout('登录已失效，请重新登录');
+        // 保留当前页面，用顶部横幅提示；用户点「重新登录」才回登录页
+        this.patch({ authExpired: true });
+        return { ok: false, code: 'AUTH_EXPIRED', message: '登录已失效，请点顶部「重新登录」' };
       }
       return { ok: false, code: res.code, message: errorText(res.code) };
     }

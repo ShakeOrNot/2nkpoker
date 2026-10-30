@@ -127,3 +127,14 @@ export function ago(ts, now = Date.now()) {
   if (h < 24) return `${h} 小时前`;
   return `${Math.floor(h / 24)} 天前`;
 }
+
+/**
+ * 比率 → 百分比文案；分母为 0（没有样本）时显示「—」
+ * @param {number} rate 0~1
+ * @param {number} base 样本数（手数/摊牌数）
+ * @returns {string}
+ */
+export function percent(rate, base) {
+  if (!Number(base)) return '—';
+  return `${(Number(rate ?? 0) * 100).toFixed(1)}%`;
+}

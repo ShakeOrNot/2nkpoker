@@ -82,7 +82,7 @@ node start.mjs --watch        # 后端改代码自动重启
 
 然后打开 `http://127.0.0.1:8080`。
 
-- **第一次来**：登录页切到「注册」，填昵称 + 口令（昵称就是登录名，2~20 字符）
+- **第一次来**：登录页切到「注册」，填昵称 + 口令（昵称就是登录名，2~20 字符；支持 `zgz@2nkpoker.com` 这种邮箱式昵称）
 - **一个人试玩**：登录页直接点「离线练习（不需要后端）」，或注册后进大厅创建牌局
 - **两个人试玩**：开一个**普通窗口** + 一个**无痕窗口**，各注册/登录一个账号。普通窗口的多个标签共用同一登录态，坐不成两个玩家
 - **手机试玩**：同一 Wi-Fi，用启动时打印的「同一 Wi-Fi」地址
@@ -108,13 +108,19 @@ curl -X POST http://127.0.0.1:3001/auth/admin/reset-password \
 node apps/game-server/scripts/reset-password.mjs <昵称> <新口令>
 node apps/game-server/scripts/reset-password.mjs --disable <昵称>
 node apps/game-server/scripts/reset-password.mjs --list
+# 批量建号（JSON：[{nickname,password}]）/ 清理冒烟账号
+node scripts/create-users.mjs users.json [--force]
+node scripts/cleanup-users.mjs --dry-run
 ```
+
+**我的战绩**（每个玩家大厅右上角「我的战绩」）：只看自己的手数、入池率、胜率、摊牌率、摊牌胜率、净筹码；管理员在「管理 → 统计」里看全站。
 
 **管理员面板**（`role=admin` 的账号在大厅右上角能看到「管理」）：
 
 - 账号：按昵称搜索、翻页；看角色 / 是否禁用 / 令牌版本
 - 操作：提为管理员 / 降为玩家、禁用 / 启用、重置口令（都要二次确认，且不能改自己）；重置口令支持**随机生成**，结果只显示一次、可复制
 - 牌桌：列出所有牌桌和座位，可**解散牌局**（通知房间里所有人回大厅）或**踢出玩家**（手牌进行中不允许，避免卡局）
+- 统计：每个账号的历史战绩——手数、**入池率**（翻前主动投钱）、**胜率**（净赢手数）、**摊牌率**（亮牌手数）、**摊牌胜率**（亮牌且净赢）、净筹码
 - 审计日志：最近 50 条登录、改密、管理员操作，带时间和 IP
 
 ### 5. 分进程调试（可选）
@@ -141,6 +147,7 @@ node apps/web/test/run-tests.mjs
 ```bash
 node scripts/auth-smoke.js          # 注册 → 登录 → 刷新 → 改密 → 登出（真 HTTP）
 node scripts/admin-smoke.js         # 管理员：列表 / 搜索 / 禁用 / 提权 / 审计（真 HTTP）
+node scripts/stats-smoke.js         # 两个真人账号打一手 → 查战绩接口（真 HTTP + WS）
 node scripts/play-smoke.js          # 两人真实打完一手
 node scripts/table-smoke.js         # 入座/站起/快照同步
 node scripts/seat-smoke.js          # 换座 + 手牌中离桌（本手结束后生效）

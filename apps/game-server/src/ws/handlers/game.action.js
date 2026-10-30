@@ -1,6 +1,7 @@
 import { GameActionSchema, parseOrError } from '../validate.js';
 import { getTable } from '../../state/tableManager.js';
 import { playAction } from '../../state/handOrchestrator.js';
+import { notePreflopAction } from '../../state/handStats.js';
 import { broadcastTable } from './table.sit.js';
 import {
   broadcastActionRequest,
@@ -23,8 +24,11 @@ export function registerGameAction(nsp, socket) {
     }
 
     t.actor.run(() => {
+      // 入池率按"翻牌前的主动投钱动作"算，必须在应用动作前判断街
+      const wasPreflop = t.handState?.street === 'PREFLOP';
       const result = playAction(t, seat, action, expectedVersion);
       if (!result.ok) return replyAck(ack, result);
+      if (wasPreflop) notePreflopAction(t, seat, action.type);
 
       nsp.to(`table:${tableId}`).emit('game:action_applied', { seat, action, handId });
       broadcastTable(nsp, t);

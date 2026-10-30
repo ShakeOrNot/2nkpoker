@@ -1621,6 +1621,39 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
   margin-top: 4px;
 }
 
+/* 我的战绩弹窗：2×2 指标卡片 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stats-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.stats-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stats-value {
+  margin-top: 2px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 /* 顶部"登录已过期"横幅：页面不跳走，点右侧按钮才回登录页 */
 .auth-banner {
   display: none;
@@ -1823,4 +1856,22 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
   padding: 4px 0;
   border-top: 1px dashed rgba(255, 255, 255, 0.06);
   flex-wrap: wrap;
+}
+
+/* 统计页签：每个账号一行指标 */
+.admin-metrics {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-metric {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
 }

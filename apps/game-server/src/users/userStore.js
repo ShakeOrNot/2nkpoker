@@ -13,8 +13,8 @@ import { getDb } from './db.js';
  * @property {number|null} last_login_at
  */
 
-/** 昵称即登录名：2~20 个字符，不能含空白/控制字符 */
-export const NICKNAME_RE = /^[\p{L}\p{N}_-]{2,20}$/u;
+/** 昵称即登录名：2~20 个字符，可用字母/数字/中文/下划线/中划线/点/@（支持邮箱式登录名） */
+export const NICKNAME_RE = /^[\p{L}\p{N}_.@-]{2,20}$/u;
 
 /**
  * @param {string} nickname

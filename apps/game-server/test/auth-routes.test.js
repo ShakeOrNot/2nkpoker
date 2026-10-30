@@ -6,6 +6,7 @@ import { registerAuthRoutes } from '../src/routes/auth.route.js';
 import { registerAdminTableRoutes } from '../src/routes/admin.tables.route.js';
 import { resetRateLimit } from '../src/auth/ratelimit.js';
 import { setRole } from '../src/users/userStore.js';
+import { recordHandStats } from '../src/users/statsStore.js';
 import { closeTable, createTable, getTable } from '../src/state/tableManager.js';
 
 /** 每个用例一个干净的内存库 + 一个挂了 auth/管理 路由的 Fastify */
@@ -479,5 +480,53 @@ describe('管理员：牌桌管理', () => {
     expect(empty.statusCode).toBe(400);
     expect(empty.json().code).toBe('INVALID_PAYLOAD');
     closeTable(tableId);
+  });
+});
+
+describe('战绩接口', () => {
+  it('GET /auth/me/stats：返回自己的历史战绩', async () => {
+    const app = await makeApp();
+    const reg = (await post(app, '/auth/register', { nickname: 'stat_me', password: PASSWORD })).json();
+    recordHandStats([
+      { handId: 's1', userId: reg.user.id, tableId: 't', at: 1, vpip: 1, showdown: 1, won: 1, showdownWon: 1, net: 40 },
+      { handId: 's2', userId: reg.user.id, tableId: 't', at: 2, vpip: 0, showdown: 0, won: 0, showdownWon: 0, net: -20 },
+    ]);
+    const res = await get(app, '/auth/me/stats', reg.accessToken);
+    expect(res.statusCode).toBe(200);
+    const stats = res.json().stats;
+    expect(stats.hands).toBe(2);
+    expect(stats.vpipHands).toBe(1);
+    expect(stats.wins).toBe(1);
+    expect(stats.showdowns).toBe(1);
+    expect(stats.showdownWins).toBe(1);
+    expect(stats.net).toBe(20);
+  });
+
+  it('GET /auth/admin/stats：管理员能看到所有人；普通账号 403', async () => {
+    const app = await makeApp();
+    const boss = (await post(app, '/auth/register', { nickname: 'stat_boss', password: PASSWORD })).json();
+    setRole(boss.user.id, 'admin');
+    const plain = (await post(app, '/auth/register', { nickname: 'stat_plain', password: PASSWORD })).json();
+    recordHandStats([
+      { handId: 's3', userId: plain.user.id, tableId: 't', at: 1, vpip: 1, showdown: 1, won: 0, showdownWon: 0, net: -5 },
+    ]);
+
+    const denied = await get(app, '/auth/admin/stats', plain.accessToken);
+    expect(denied.statusCode).toBe(403);
+
+    const res = await get(app, '/auth/admin/stats?limit=10', boss.accessToken);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    expect(body.total >= 2).toBe(true);
+    const row = body.stats.find((s) => s.nickname === 'stat_plain');
+    expect(Boolean(row)).toBe(true);
+    expect(row.hands).toBe(1);
+    expect(row.vpipRate).toBe(1);
+
+    // 搜索
+    const found = (await get(app, '/auth/admin/stats?q=stat_plain', boss.accessToken)).json();
+    expect(found.stats.length).toBe(1);
+    expect(found.stats[0].nickname).toBe('stat_plain');
   });
 });

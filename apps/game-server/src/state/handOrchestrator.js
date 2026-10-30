@@ -1,5 +1,6 @@
 import { startHand, applyAction, nextOccupiedSeat } from '@2nkpoker/poker-engine';
 import { findFreeSeat } from './tableManager.js';
+import { beginHandStats } from './handStats.js';
 
 /**
  * 检查是否该开局。满足条件就 startHand 并返回 true
@@ -42,6 +43,7 @@ export function maybeStartHand(t) {
 
   t.handState = state;
   t.version += 1;
+  beginHandStats(t);
 
   for (const hs of state.seats) {
     const seat = t.seats.get(hs.seat);

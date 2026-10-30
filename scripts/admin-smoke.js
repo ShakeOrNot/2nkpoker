@@ -151,6 +151,11 @@ async function main() {
   const deniedAudit = await api('/auth/admin/audit?limit=50', { method: 'GET', token: reLogin.accessToken });
   check(deniedAudit.status === 401 && deniedAudit.code === 'AUTH_CREDENTIALS_CHANGED', '降权后目标旧 access 失效（不会残留管理员权限）');
 
+  // 10. 战绩列表可读（每行带四个比率字段）
+  const stats = await api('/auth/admin/stats?limit=5', { method: 'GET', token: adminToken });
+  check(stats.ok && Array.isArray(stats.stats), '管理员能读取战绩列表');
+  check(stats.stats.every((s) => typeof s.hands === 'number' && typeof s.vpipRate === 'number' && typeof s.showdownWinRate === 'number'), '战绩字段完整');
+
   // 10. 牌桌管理：建桌 → 列表能看到 → 解散 → 列表里消失
   const tableId = `admtbl_${TAG}`;
   const created = await api('/tables', { body: { tableId, maxSeats: 6, smallBlind: 10, bigBlind: 20 } });

@@ -7,7 +7,7 @@
 
 import { View, button, labelled, node, setDisabled, setText, tag } from './base.js';
 import { copyText, toast } from '../core/dom.js';
-import { ago, clock } from '../core/format.js';
+import { ago, clock, percent } from '../core/format.js';
 
 const PAGE_SIZE = 20;
 const AUDIT_LIMIT = 50;
@@ -41,6 +41,7 @@ export class AdminView extends View {
     this.total = 0;
     this.loading = false;
     this.tables = [];
+    this.stats = [];
     this.auditEntries = [];
     /** @type {any} */
     this.resetTarget = null;
@@ -74,9 +75,11 @@ export class AdminView extends View {
     const tabs = node('admin-tabs');
     this.usersTab = button({ label: '账号', className: 'btn-ghost btn-sm', onClick: () => this.switchTab('users') });
     this.tablesTab = button({ label: '牌桌', className: 'btn-ghost btn-sm', onClick: () => this.switchTab('tables') });
+    this.statsTab = button({ label: '统计', className: 'btn-ghost btn-sm', onClick: () => this.switchTab('stats') });
     this.auditTab = button({ label: '审计日志', className: 'btn-ghost btn-sm', onClick: () => this.switchTab('audit') });
     tabs.appendChild(this.usersTab);
     tabs.appendChild(this.tablesTab);
+    tabs.appendChild(this.statsTab);
     tabs.appendChild(this.auditTab);
     this.root.appendChild(tabs);
 
@@ -126,6 +129,20 @@ export class AdminView extends View {
     this.tableList = node('admin-list');
     this.tablesPanel.appendChild(this.tableList);
     this.root.appendChild(this.tablesPanel);
+
+    /* 统计面板：每个账号的历史战绩 */
+    this.statsPanel = node('admin-panel');
+    const statsBar = node('admin-search');
+    statsBar.appendChild(
+      button({ label: '刷新统计', className: 'btn-ghost btn-sm', onClick: () => void this.refreshStats() }),
+    );
+    statsBar.appendChild(
+      tag('span', 'admin-hint', '入池率=翻前主动投钱；胜率=净赢手数；摊牌率=亮牌手数；摊牌胜率=亮牌且净赢'),
+    );
+    this.statsPanel.appendChild(statsBar);
+    this.statsList = node('admin-list');
+    this.statsPanel.appendChild(this.statsList);
+    this.root.appendChild(this.statsPanel);
 
     /* 重置口令弹窗 */
     this.pwOverlay = node('modal-overlay');
@@ -197,20 +214,23 @@ export class AdminView extends View {
 
   /* ---------------- 页签 ---------------- */
 
-  /** @param {'users'|'tables'|'audit'} tab */
+  /** @param {'users'|'tables'|'stats'|'audit'} tab */
   switchTab(tab) {
     this.tab = tab;
     this.renderTabs();
     if (tab === 'audit') void this.refreshAudit();
     if (tab === 'tables') void this.refreshTables();
+    if (tab === 'stats') void this.refreshStats();
   }
 
   renderTabs() {
     this.usersPanel.classList.toggle('hidden', this.tab !== 'users');
     this.tablesPanel.classList.toggle('hidden', this.tab !== 'tables');
+    this.statsPanel.classList.toggle('hidden', this.tab !== 'stats');
     this.auditPanel.classList.toggle('hidden', this.tab !== 'audit');
     this.usersTab.classList.toggle('active', this.tab === 'users');
     this.tablesTab.classList.toggle('active', this.tab === 'tables');
+    this.statsTab.classList.toggle('active', this.tab === 'stats');
     this.auditTab.classList.toggle('active', this.tab === 'audit');
   }
 
@@ -531,5 +551,50 @@ export class AdminView extends View {
     }
     toast(`已踢出「${seat.nickname}」`, 'info');
     void this.refreshTables();
+  }
+
+  /* ---------------- 统计 ---------------- */
+
+  async refreshStats() {
+    const res = await this.store.adminStats({ limit: 200 });
+    if (!res.ok) {
+      this.statsList.textContent = '';
+      toast(res.message ?? '加载统计失败', 'error');
+      return;
+    }
+    this.stats = res.stats;
+    this.renderStats();
+  }
+
+  renderStats() {
+    this.statsList.textContent = '';
+    if (!this.stats.length) {
+      this.statsList.appendChild(tag('p', 'admin-empty', '还没有人打过牌'));
+      return;
+    }
+    for (const stats of this.stats) this.statsRow(stats);
+  }
+
+  /** @param {any} stats */
+  statsRow(stats) {
+    const row = node('admin-row');
+
+    const info = node('admin-cell');
+    info.appendChild(tag('div', 'admin-name', String(stats.nickname ?? '')));
+    const net = Number(stats.net ?? 0);
+    const last = stats.lastPlayedAt ? ` · 最近 ${ago(Number(stats.lastPlayedAt))}` : '';
+    info.appendChild(
+      tag('div', 'admin-sub', `${stats.hands} 手 · 净 ${net >= 0 ? '+' : ''}${net}${last}`),
+    );
+    row.appendChild(info);
+
+    const metrics = node('admin-metrics');
+    metrics.appendChild(tag('span', 'admin-metric', `入池 ${percent(stats.vpipRate, stats.hands)}`));
+    metrics.appendChild(tag('span', 'admin-metric', `胜率 ${percent(stats.winRate, stats.hands)}`));
+    metrics.appendChild(tag('span', 'admin-metric', `摊牌 ${percent(stats.showdownRate, stats.hands)}`));
+    metrics.appendChild(tag('span', 'admin-metric', `摊牌胜 ${percent(stats.showdownWinRate, stats.showdowns)}`));
+    row.appendChild(metrics);
+
+    this.statsList.appendChild(row);
   }
 }

@@ -1,4 +1,5 @@
 import { playAction, cleanupAfterHand, maybeStartHand } from './handOrchestrator.js';
+import { recordHandResult } from './handStats.js';
 import { broadcastTable } from '../ws/handlers/table.sit.js';
 
 const ACTION_TIMEOUT_MS = Number(process.env.ACTION_TIMEOUT_MS ?? 30000);
@@ -133,6 +134,14 @@ export function broadcastResult(nsp, t, handId) {
     board: t.handState.board,
     seats: publicSeats,
   });
+
+  // 战绩入库（必须在 cleanupAfterHand 清空 handState 之前）
+  try {
+    recordHandResult(t);
+  } catch (err) {
+    console.error('[stats] record failed', err?.message ?? err);
+  }
+
   const seated = cleanupAfterHand(t);
 
   // 排队补位的人：把座位写回他们的 socket。

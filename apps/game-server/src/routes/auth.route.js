@@ -14,6 +14,7 @@ import {
   setDisabled,
   bumpTokenVersion,
 } from '../users/userStore.js';
+import { listUserStats, statsForUser } from '../users/statsStore.js';
 import { checkPasswordPolicy, hashPassword, verifyPassword } from '../auth/password.js';
 import { ACCESS_TTL_MS, signAccessToken } from '../auth/jwt.js';
 import { clientIp, requireAdmin, requireUser } from '../auth/adminGuard.js';
@@ -113,7 +114,7 @@ export function registerAuthRoutes(app) {
 
     if (!isValidNickname(nickname)) {
       reply.code(400);
-      return { ok: false, code: 'AUTH_INVALID_NICKNAME', message: '昵称需 2~20 个字符，只能是字母/数字/下划线/中划线/中文' };
+      return { ok: false, code: 'AUTH_INVALID_NICKNAME', message: '昵称需 2~20 个字符，只能用字母/数字/下划线/中划线/点/@/中文' };
     }
     const policy = checkPasswordPolicy(password, nickname);
     if (!policy.ok) {
@@ -402,6 +403,31 @@ export function registerAuthRoutes(app) {
         ip: row.ip,
         ok: Boolean(row.ok),
       })),
+    };
+  });
+
+  /* ---------------- 我的战绩 ---------------- */
+  app.get('/auth/me/stats', async (req, reply) => {
+    const user = requireUser(req, reply);
+    if (!user) return reply;
+    return { ok: true, stats: statsForUser(user.id) };
+  });
+
+  /* ---------------- 管理员：全站战绩 ---------------- */
+  app.get('/auth/admin/stats', async (req, reply) => {
+    const admin = requireAdmin(req, reply);
+    if (!admin) return reply;
+
+    const parsed = AdminUsersQuerySchema.safeParse(req.query ?? {});
+    if (!parsed.success) {
+      reply.code(400);
+      return { ok: false, code: 'INVALID_PAYLOAD', message: '查询参数不合法' };
+    }
+    const { q, limit, offset } = parsed.data;
+    return {
+      ok: true,
+      total: countUsers(q),
+      stats: listUserStats({ q, limit, offset }),
     };
   });
 }

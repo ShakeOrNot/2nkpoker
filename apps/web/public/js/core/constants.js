@@ -51,7 +51,7 @@ export const ERROR_TEXT = {
   AUTH_INVALID_CREDENTIALS: '昵称或口令不对',
   AUTH_USER_EXISTS: '这个昵称已经被注册了',
   AUTH_WEAK_PASSWORD: '口令太弱：至少 8 位，不能纯数字，也不能和昵称相同',
-  AUTH_INVALID_NICKNAME: '昵称需 2~20 个字符，只能用字母/数字/下划线/中划线/中文',
+  AUTH_INVALID_NICKNAME: '昵称需 2~20 个字符，只能用字母/数字/下划线/中划线/点/@/中文',
   AUTH_LOCKED: '失败次数过多，账号已临时锁定，稍后再试',
   AUTH_REFRESH_INVALID: '登录已失效，请重新登录',
   AUTH_CREDENTIALS_CHANGED: '口令已变更，请重新登录',

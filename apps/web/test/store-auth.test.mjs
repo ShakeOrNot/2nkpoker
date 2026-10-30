@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Store } from '../public/js/store.js';
+import { GameSocket } from '../public/js/net/socket.js';
 
 const realFetch = globalThis.fetch;
 
@@ -216,5 +217,77 @@ describe('账密登录（store ↔ HTTP）', () => {
     expect(calls.some((c) => c.url.endsWith('/auth/logout'))).toBe(true);
     expect(store.state.session).toBeNull();
     expect(store.state.phase).toBe('login');
+  });
+});
+
+describe('握手鉴权失败：自动续期重试', () => {
+  /** @param {() => Promise<any>} fn */
+  async function withSocketStub(connectImpl, fn) {
+    const real = GameSocket.prototype.connect;
+    GameSocket.prototype.connect = connectImpl;
+    try {
+      await fn();
+    } finally {
+      GameSocket.prototype.connect = real;
+    }
+  }
+
+  function authedStore() {
+    const store = freshStore();
+    store.installSession({
+      token: 'old-access',
+      refreshToken: 'refresh-1',
+      userId: 'u1',
+      nickname: '阿豪',
+      expiresAt: Date.now() + 60000,
+    });
+    store.state.phase = 'lobby';
+    return store;
+  }
+
+  it('第一次 AUTH_FAILED → 续期后重连成功，不踢回登录页', async () => {
+    const store = authedStore();
+    let attempts = 0;
+    await withSocketStub(
+      async () => {
+        attempts += 1;
+        return attempts === 1 ? { ok: false, code: 'AUTH_FAILED' } : { ok: true };
+      },
+      async () => {
+        await withFetch(
+          () => jsonResponse(sessionBody({ accessToken: 'new-access', refreshToken: 'refresh-2' })),
+          async () => {
+            const res = await store.ensureSocket();
+            expect(res.ok).toBe(true);
+            expect(attempts).toBe(2);
+            expect(store.state.phase).toBe('lobby');
+            expect(store.state.authExpired).toBe(false);
+            expect(store.state.session?.token).toBe('new-access');
+          },
+        );
+      },
+    );
+    store.closeSocket();
+  });
+
+  it('续期也失败 → 保留页面 + 顶部横幅（authExpired），不 logout', async () => {
+    const store = authedStore();
+    await withSocketStub(
+      async () => ({ ok: false, code: 'AUTH_FAILED' }),
+      async () => {
+        await withFetch(
+          () => jsonResponse({ ok: false, code: 'AUTH_REFRESH_INVALID' }, 401),
+          async () => {
+            const res = await store.ensureSocket();
+            expect(res.ok).toBe(false);
+            expect(res.code).toBe('AUTH_EXPIRED');
+            expect(store.state.phase).toBe('lobby'); // 没被踢回登录
+            expect(Boolean(store.state.session)).toBe(true);
+            expect(store.state.authExpired).toBe(true);
+          },
+        );
+      },
+    );
+    store.closeSocket();
   });
 });
