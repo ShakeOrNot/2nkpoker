@@ -38,6 +38,7 @@ export function maybeStartHand(t) {
     buttonSeat: btnSeat,
     smallBlind: t.smallBlind,
     bigBlind: t.bigBlind,
+    ante: t.ante ?? 0,
     players,
   });
 
@@ -63,7 +64,7 @@ export function maybeStartHand(t) {
  * @param {number} expectedVersion
  * @returns {{ ok: boolean, code?: string, message?: string }}
  */
-export function playAction(t, seat, action, expectedVersion) {
+export function playAction(t, seat, action, expectedVersion, options = {}) {
   if (!t.handState || t.handState.settled) {
     return { ok: false, code: 'HAND_NOT_ACTIVE' };
   }
@@ -73,7 +74,7 @@ export function playAction(t, seat, action, expectedVersion) {
 
   let result;
   try {
-    result = applyAction(t.handState, seat, action);
+    result = applyAction(t.handState, seat, action, options);
   } catch (e) {
     return { ok: false, code: e.message || 'INVALID_ACTION' };
   }
@@ -142,6 +143,15 @@ export function cleanupAfterHand(t) {
     if (s) s.chips = hs.chips;
   }
 
+  // 1.5 本手进行中提交的买入：结算后补码（不能立刻补）
+  for (const s of t.seats.values()) {
+    if (s.pendingBuyIn > 0) {
+      s.chips += s.pendingBuyIn;
+      s.buyInTotal = (s.buyInTotal ?? 0) + s.pendingBuyIn;
+      s.pendingBuyIn = 0;
+    }
+  }
+
   // 2. 输光筹码的人自动离座；本手结束后要离桌的人也一并清掉
   for (const [seat, s] of [...t.seats.entries()]) {
     if (s.chips <= 0 || s.leaving) {
@@ -166,6 +176,7 @@ export function cleanupAfterHand(t) {
         userId: q.userId,
         nickname: q.nickname,
         chips: q.buyIn,
+        buyInTotal: q.buyIn,
         ready: false,
         // 真实连接状态由调用方按 socket 是否存在修正（见 actionTimer.broadcastResult）
         connected: true,

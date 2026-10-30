@@ -476,6 +476,9 @@ if (!failed) {
     if (views.lobby.passwordBtn.classList.contains('hidden')) {
       throw new Error('在线模式「改口令」按钮被藏起来了');
     }
+    if (views.lobby.buyInInput !== undefined) {
+      throw new Error('创建牌局不应再有买入输入框（固定 1 个买入）');
+    }
     console.log('  ok    改口令弹窗能开能关，离线模式隐藏入口');
   } catch (err) {
     failed++;

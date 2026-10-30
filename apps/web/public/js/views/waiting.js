@@ -6,7 +6,7 @@
 import { View, button, node, setDisabled, setText, tag } from './base.js';
 import { toast, copyText } from '../core/dom.js';
 import { chips, stakeText } from '../core/format.js';
-import { MAX_BUY_IN, MIN_BUY_IN } from '../core/constants.js';
+import { BUY_IN_BB, MAX_BUY_IN_UNITS } from '../core/constants.js';
 import { handRunning, shareUrl, isValidRoomId, tablePositions } from '../core/logic.js';
 
 export class WaitingView extends View {
@@ -138,14 +138,16 @@ export class WaitingView extends View {
     /* 带入与操作 */
     const actionCard = node('card');
     this.buyRow = node('field');
-    this.buyRow.appendChild(tag('label', 'field-label', `带入筹码（${MIN_BUY_IN}~${MAX_BUY_IN}）`));
+    this.buyRow.appendChild(
+      tag('label', 'field-label', `买入（1 个 = 100BB，最多 ${MAX_BUY_IN_UNITS} 个）`),
+    );
     this.buyInput = tag('input', 'input input-number');
     this.buyInput.type = 'number';
     this.buyInput.inputMode = 'numeric';
-    this.buyInput.min = String(MIN_BUY_IN);
-    this.buyInput.max = String(MAX_BUY_IN);
-    this.buyInput.step = '100';
-    this.buyInput.value = '1000';
+    this.buyInput.min = '1';
+    this.buyInput.max = String(MAX_BUY_IN_UNITS);
+    this.buyInput.step = '1';
+    this.buyInput.value = '1';
     this.buyRow.appendChild(this.buyInput);
     actionCard.appendChild(this.buyRow);
 
@@ -188,9 +190,10 @@ export class WaitingView extends View {
   buyInValue() {
     const snap = this.store.state.room.snapshot;
     const bb = Number(snap?.bigBlind ?? 20);
-    const fallback = bb * 50;
-    const value = Math.floor(Number(this.buyInput.value) || fallback);
-    return Math.min(MAX_BUY_IN, Math.max(MIN_BUY_IN, value));
+    const unit = bb * BUY_IN_BB;
+    const units = Math.floor(Number(this.buyInput.value) || 1);
+    const safeUnits = Math.min(MAX_BUY_IN_UNITS, Math.max(1, units));
+    return safeUnits * unit;
   }
 
   async doSit() {

@@ -59,7 +59,7 @@ async function main() {
 
   // Alice 坐下：等快照里出现 alice
   const p1 = waitForSnapshot(alice, (s) => countOccupied(s) === 1);
-  alice.emit('table:sit', { tableId: TABLE_ID, seat: 0, buyIn: 1000 }, (res) => {
+  alice.emit('table:sit', { tableId: TABLE_ID, seat: 0, buyIn: 2000 }, (res) => {
     console.log('alice sit ack:', res);
   });
   await p1;
@@ -69,7 +69,7 @@ async function main() {
   // 注意：两个监听都必须在 emit 之前注册，否则会漏掉这次广播（本地服务器太快）。
   const p2 = waitForSnapshot(bob, (s) => countOccupied(s) === 2);
   const pAlice = waitForSnapshot(alice, (s) => countOccupied(s) === 2);
-  bob.emit('table:sit', { tableId: TABLE_ID, seat: 1, buyIn: 1000 }, (res) => {
+  bob.emit('table:sit', { tableId: TABLE_ID, seat: 1, buyIn: 2000 }, (res) => {
     console.log('bob sit ack:', res);
   });
   const snap2 = await p2;
@@ -101,7 +101,7 @@ async function main() {
 
   // Bob 还在房间里（table:stand 不再退订），所以能收到广播并直接重新坐下
   const pReSit = waitForSnapshot(bob, (s) => countOccupied(s) === 2);
-  bob.emit('table:sit', { tableId: TABLE_ID, seat: 1, buyIn: 1000 }, (res) => {
+  bob.emit('table:sit', { tableId: TABLE_ID, seat: 1, buyIn: 2000 }, (res) => {
     console.log('bob re-sit ack:', res);
   });
   const snapReSit = await pReSit;

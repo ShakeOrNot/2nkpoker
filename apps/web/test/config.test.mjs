@@ -189,12 +189,12 @@ describe('传输层接口契约（曾经的"点了没反应"根因）', () => {
     expect(login.ok).toBe(true);
     expect(store.state.phase).toBe('lobby');
 
-    const created = await store.createRoom({ maxSeats: 4, smallBlind: 10, bigBlind: 20, buyIn: 1000 });
+    const created = await store.createRoom({ maxSeats: 4, smallBlind: 10, bigBlind: 20, buyIn: 2000 });
     expect(created.ok).toBe(true);
     expect(store.state.phase).toBe('waiting');
     expect(store.state.room.tableId).toBe(created.tableId);
 
-    const seat = await store.sit(null, 1000);
+    const seat = await store.sit(null, 2000);
     expect(seat.ok).toBe(true);
 
     await store.setReady(true);

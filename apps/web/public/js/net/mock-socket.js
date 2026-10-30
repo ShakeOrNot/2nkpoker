@@ -71,6 +71,7 @@ class LocalHand {
     this.smallBlind = input.smallBlind;
     this.bigBlind = input.bigBlind;
     this.buttonSeat = input.buttonSeat;
+    this.ante = input.ante ?? 0;
     this.deck = newDeck();
     this.board = [];
     this.street = 'PREFLOP';
@@ -112,6 +113,7 @@ class LocalHand {
     const bbIdx = this.nextSeat(sbIdx);
     this.postBlind(sbIdx, this.smallBlind);
     this.postBlind(bbIdx, this.bigBlind);
+    if (this.ante > 0) this.postAnte(this.ante);
 
     for (let round = 0; round < 2; round++) {
       for (let i = 0; i < this.n; i++) {
@@ -134,6 +136,16 @@ class LocalHand {
     s.betThisStreet += pay;
     s.totalCommitted += pay;
     if (s.chips === 0) s.allIn = true;
+  }
+
+  /** 前注：每个人都要交，但不算本街下注 */
+  postAnte(amount) {
+    for (const s of this.seats) {
+      const pay = Math.min(amount, s.chips);
+      s.chips -= pay;
+      s.totalCommitted += pay;
+      if (s.chips === 0) s.allIn = true;
+    }
   }
 
   /**
@@ -192,6 +204,7 @@ class LocalHand {
       buttonSeat: this.buttonSeat,
       smallBlind: this.smallBlind,
       bigBlind: this.bigBlind,
+      ante: this.ante,
       seats: this.seats.map((s) => ({
         seat: s.seat,
         userId: s.userId,
@@ -494,7 +507,8 @@ class LocalTable {
     this.smallBlind = cfg.smallBlind ?? 10;
     this.bigBlind = cfg.bigBlind ?? 20;
     this.maxSeats = Math.min(MAX_SEATS, cfg.maxSeats ?? 6);
-    this.buyIn = cfg.buyIn ?? 1000;
+    this.ante = cfg.ante ?? 5;
+    this.buyIn = cfg.buyIn ?? 2000;
     this.version = 0;
     this.buttonSeat = Math.floor(Math.random() * this.maxSeats);
     /** @type {Map<number, any>} */
@@ -543,6 +557,7 @@ class LocalTable {
       version: this.version,
       smallBlind: this.smallBlind,
       bigBlind: this.bigBlind,
+      ante: this.ante,
       buttonSeat: this.buttonSeat,
       maxSeats: this.maxSeats,
       seats,
@@ -561,7 +576,7 @@ export class MockGameSocket {
       smallBlind: cfg.smallBlind ?? 10,
       bigBlind: cfg.bigBlind ?? 20,
       maxSeats: cfg.maxSeats ?? 6,
-      buyIn: cfg.buyIn ?? 1000,
+      buyIn: cfg.buyIn ?? 2000,
     };
     /** @type {Map<string, Set<Function>>} */
     this.listeners = new Map();
@@ -1013,6 +1028,7 @@ export class MockGameSocket {
       buttonSeat: t.buttonSeat % t.maxSeats,
       smallBlind: t.smallBlind,
       bigBlind: t.bigBlind,
+      ante: t.ante,
       players: [...t.seats.values()].map((s) => ({
         seat: s.seat,
         userId: s.userId,

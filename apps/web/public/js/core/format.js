@@ -109,7 +109,9 @@ export function stakeText(cfg) {
   const sb = cfg?.smallBlind ?? 10;
   const bb = cfg?.bigBlind ?? 20;
   const seats = cfg?.maxSeats ?? 6;
-  return `${sb}/${bb} · ${seats}人桌`;
+  const ante = Number(cfg?.ante ?? 0);
+  const anteText = ante > 0 ? ` ante ${ante}` : '';
+  return `${sb}/${bb}${anteText} · ${seats}人桌`;
 }
 
 /**

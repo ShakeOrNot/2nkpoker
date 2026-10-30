@@ -14,7 +14,7 @@ import { env } from '../apps/game-server/src/env.js';
 import { initDb, getDb } from '../apps/game-server/src/users/db.js';
 import { listUsers } from '../apps/game-server/src/users/userStore.js';
 
-const DEFAULT_PREFIXES = ['smoke_', 'lock_', 'adm_', 'usr_'];
+const DEFAULT_PREFIXES = ['smoke_', 'lock_', 'adm_', 'usr_', 'stat_', 'rb_', 'probe_'];
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');

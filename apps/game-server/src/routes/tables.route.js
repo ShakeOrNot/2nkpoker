@@ -6,6 +6,7 @@ const CreateTableSchema = z.object({
   maxSeats: z.number().int().min(2).max(6).optional(),
   smallBlind: z.number().int().positive().max(100000).optional(),
   bigBlind: z.number().int().positive().max(1000000).optional(),
+  ante: z.number().int().min(0).max(1000).optional(),
 });
 
 /**
@@ -46,7 +47,7 @@ export function registerTablesRoutes(app) {
       reply.code(400);
       return { ok: false, code: 'INVALID_PAYLOAD', message: parsed.error.issues[0]?.message ?? 'invalid body' };
     }
-    const { tableId, maxSeats, smallBlind, bigBlind } = parsed.data;
+    const { tableId, maxSeats, smallBlind, bigBlind, ante } = parsed.data;
     if (getTable(tableId)) {
       // 已存在：直接返回（前端会 join 进去）
       const t = getTable(tableId);
@@ -57,12 +58,13 @@ export function registerTablesRoutes(app) {
           maxSeats: t.maxSeats,
           smallBlind: t.smallBlind,
           bigBlind: t.bigBlind,
+          ante: t.ante ?? 0,
           createdAt: t.createdAt,
         },
       };
     }
-    const t = createTable(tableId, { maxSeats, smallBlind, bigBlind });
-    app.log.info({ tableId, maxSeats: t.maxSeats, smallBlind: t.smallBlind, bigBlind: t.bigBlind }, 'table created');
+    const t = createTable(tableId, { maxSeats, smallBlind, bigBlind, ante });
+    app.log.info({ tableId, maxSeats: t.maxSeats, smallBlind: t.smallBlind, bigBlind: t.bigBlind, ante: t.ante }, 'table created');
     return {
       ok: true,
       table: {
@@ -70,6 +72,7 @@ export function registerTablesRoutes(app) {
         maxSeats: t.maxSeats,
         smallBlind: t.smallBlind,
         bigBlind: t.bigBlind,
+        ante: t.ante ?? 0,
         createdAt: t.createdAt,
       },
     };

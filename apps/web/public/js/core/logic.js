@@ -7,7 +7,7 @@
  *   - raise 的目标必须 ≥ currentBet + minRaise
  */
 
-import { MAX_SEATS, MIN_BUY_IN, MAX_BUY_IN, BLIND_LEVELS } from './constants.js';
+import { MAX_SEATS, BUY_IN_BB, MAX_BUY_IN_UNITS, BLIND_LEVELS } from './constants.js';
 
 /** 牌型中文名，索引与 poker-engine 的 Category 对齐 */
 export const CATEGORY_NAMES = [
@@ -135,21 +135,27 @@ export function shareUrl(baseUrl, tableId) {
 }
 
 /**
- * 校验带入筹码
+ * 校验买入：必须是 1~50 个买入单位（1 个买入 = 100BB）
  * @param {number} buyIn
+ * @param {number} [bigBlind]
  * @returns {{ ok: boolean, code?: string, message?: string }}
  */
-export function validateBuyIn(buyIn) {
+export function validateBuyIn(buyIn, bigBlind = 20) {
   const v = Math.floor(Number(buyIn));
-  if (!Number.isFinite(v) || v < MIN_BUY_IN || v > MAX_BUY_IN) {
-    return { ok: false, code: 'INVALID_BUY_IN' };
+  const unit = Math.max(1, Number(bigBlind) || 20) * BUY_IN_BB;
+  if (!Number.isFinite(v) || v < unit || v > unit * MAX_BUY_IN_UNITS || v % unit !== 0) {
+    return {
+      ok: false,
+      code: 'INVALID_BUY_IN',
+      message: `买入必须是整数个买入单位（1 个买入 = ${unit} 筹码 = 100BB），最多 ${MAX_BUY_IN_UNITS} 个`,
+    };
   }
   return { ok: true };
 }
 
 /**
  * 校验自建牌局配置
- * @param {{ maxSeats?: number, smallBlind?: number, bigBlind?: number, buyIn?: number }} cfg
+ * @param {{ maxSeats?: number, smallBlind?: number, bigBlind?: number, buyIn?: number, ante?: number }} cfg
  * @returns {{ ok: boolean, code?: string, message?: string }}
  */
 export function validateRoomConfig(cfg) {
@@ -162,13 +168,17 @@ export function validateRoomConfig(cfg) {
   if (!(sb > 0) || !(bb > sb)) {
     return { ok: false, code: 'INVALID_PAYLOAD', message: '盲注设置不合法' };
   }
-  return validateBuyIn(cfg?.buyIn ?? 1000);
+  const ante = Number(cfg?.ante ?? 5);
+  if (!Number.isInteger(ante) || ante < 0 || ante > 1000) {
+    return { ok: false, code: 'INVALID_PAYLOAD', message: '前注（ante）不合法' };
+  }
+  return validateBuyIn(cfg?.buyIn ?? bb * BUY_IN_BB, bb);
 }
 
 /**
- * 默认自建牌局配置
+ * 默认自建牌局配置：1 个买入 = 100BB，默认带 1 个买入
  * @param {number} [blindIndex]
- * @returns {{ maxSeats: number, smallBlind: number, bigBlind: number, buyIn: number }}
+ * @returns {{ maxSeats: number, smallBlind: number, bigBlind: number, ante: number, buyIn: number }}
  */
 export function defaultRoomConfig(blindIndex = 0) {
   const level = BLIND_LEVELS[blindIndex] ?? BLIND_LEVELS[0];
@@ -176,7 +186,8 @@ export function defaultRoomConfig(blindIndex = 0) {
     maxSeats: MAX_SEATS,
     smallBlind: level.smallBlind,
     bigBlind: level.bigBlind,
-    buyIn: level.bigBlind * 50,
+    ante: 5,
+    buyIn: level.bigBlind * BUY_IN_BB,
   };
 }
 

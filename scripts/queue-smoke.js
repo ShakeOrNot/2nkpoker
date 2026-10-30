@@ -18,7 +18,7 @@ const TABLE_ID = `queue_${TAG}`;
 const SECRET = process.env.JWT_SECRET ?? 'change_me';
 const ISSUER = process.env.JWT_ISSUER ?? '2nkpoker';
 const AUDIENCE = process.env.JWT_AUDIENCE ?? '2nkpoker-web';
-const BUY_IN = 1000;
+const BUY_IN = 2000;
 
 function connect(sub, nickname) {
   const token = jwt.sign({ nickname, role: 'user' }, SECRET, {

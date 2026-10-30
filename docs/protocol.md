@@ -136,6 +136,7 @@ type TableSummary = {
   hasHand: boolean;     // 是否有进行中的手牌
   smallBlind: number;
   bigBlind: number;
+  ante: number;
   createdAt: number;    // 毫秒时间戳
 };
 ```
@@ -148,7 +149,8 @@ type TableSummary = {
 | :--- | :--- | :--- |
 | `table:join` | `{ tableId }` | `seat`、`restored`（断线重连恢复原座位时） |
 | `table:leave` | `{ tableId }` | —（只退订房间，不站起） |
-| `table:sit` | `{ tableId, seat, buyIn }` | `seat`（`seat: -1` 表示任意空位） |
+| `table:sit` | `{ tableId, seat, buyIn }` | `seat`（`seat: -1` 表示任意空位；`buyIn` 必须是 1~50 个买入单位） |
+| `table:rebuy` | `{ tableId, units }` | `{ ok, pending, amount, chips, applyAt? }`：手牌中提交时 `pending: true`、`applyAt: 'hand_end'` |
 | `table:stand` | `{ tableId }` | — |
 | `table:ready` | `{ tableId, ready }` | — |
 | `table:request_state` | `{ tableId }` | `snapshot`（同时也会主动推一次 `table:snapshot`） |
@@ -185,7 +187,7 @@ type Action =
 
 ### 4.2 服务端 → 客户端
 
-**只有这 7 个事件**（不存在 `game:street` / `game:showdown` / `hand:hole_cards` / `error`）：
+**只有这 8 个事件**（不存在 `game:showdown` / `hand:hole_cards` / `error`）：
 
 | 事件 | 载荷 | 发给谁 |
 | :--- | :--- | :--- |
@@ -193,13 +195,14 @@ type Action =
 | `hand:start` | `{ handId, buttonSeat, smallBlind, bigBlind }` | 房间 |
 | `game:action_request` | `{ handId, seat, legalActions, deadline, version }` | **只发给当前行动者** |
 | `game:action_applied` | `{ seat, action, handId, timeout? }` | 房间 |
+| `game:street` | `{ handId, street, board }` | 房间（街道延迟结束、新公共牌发出时） |
 | `game:result` | `{ handId, result, board, seats }` | 房间 |
 | `table:closed` | `{ tableId, by }` | 房间（管理员解散牌局时）；前端收到后回大厅 |
 | `table:kicked` | `{ tableId, by }` | **只发给被踢的人**；前端收到后回大厅 |
 
 要点：
 
-- 翻牌/转牌/河牌**没有专门事件**，街和公共牌只存在于 `table:snapshot.hand`（`street` + `board`）
+- 翻牌/转牌/河牌没有独立事件时，街和公共牌只存在于 `table:snapshot.hand`（`street` + `board`）；`game:street` 是给动画的显式通知（没有监听也不影响）
 - 服务端不会主动 emit `error`；失败一律走 ack 的 `code`
 - 手牌只发本人：`hand.seats[].holeCards` 非本人座位恒为 `[]`
 - `legalActions` 取值：`fold` / `check` / `call` / `bet` / `raise` / `all_in`
@@ -212,6 +215,7 @@ type TableSnapshot = {
   version: number;        // 桌子版本，单调递增
   smallBlind: number;
   bigBlind: number;
+  ante: number;           // 每手前注
   buttonSeat: number;
   maxSeats: number;
   seats: {                // 长度固定 = maxSeats，空位 userId 为 null
@@ -222,6 +226,8 @@ type TableSnapshot = {
     ready: boolean;
     connected: boolean;
     leaving: boolean;     // 手牌中点了离桌：本手结束后自动清座
+    buyInTotal: number | null;  // 累计买入（筹码）
+    pendingBuyIn: number;       // 手牌中提交、结算后补码的金额（0 表示没有）
   }[];
   hand: HandSnapshot | null;   // 没有进行中的手牌时为 null
 };
@@ -233,6 +239,8 @@ type HandSnapshot = {
   buttonSeat: number;
   smallBlind: number;
   bigBlind: number;
+  ante: number;
+  pendingStreetAdvance: boolean; // 本街已结束、正在等 1 秒动画后再发下一条街
   seats: {
     seat: number;         // 只包含参与本手的座位，座位号可能不连续
     userId: string | null;
@@ -293,7 +301,8 @@ type HandResult = {
 | `ALREADY_IN_OTHER_TABLE` | 已坐在别的桌子 | 你已经在另一张桌子上了 |
 | `NOT_SEATED` | 没坐下就发动作/准备 | 你还没有入座 |
 | `HAND_IN_PROGRESS` | 手牌进行中不能入座/换座/准备；`queued: true` 表示已排队 | 牌局进行中，暂时不能入座或离座 |
-| `INVALID_BUY_IN` | 带入不在 100~100000 | 带入筹码必须在 100~100000 之间 |
+| `INVALID_BUY_IN` | 买入不是 1~50 个买入单位（1 个 = 100BB） | 买入必须是整数个买入单位（1 个买入 = 100BB），最多 50 个 |
+| `BUY_IN_LIMIT` | 累计买入超过 50 个单位 | 最多 50 个买入 |
 | `HAND_NOT_ACTIVE` | 没有进行中的手牌 | 当前没有进行中的牌局 |
 | `STATE_OUTDATED` | `expectedVersion` 与服务端不一致 | 牌局状态已更新，请重试 |
 | `NOT_YOUR_TURN` | 不是当前行动者（引擎抛出） | 还没轮到你行动 |
@@ -317,6 +326,11 @@ type HandResult = {
 - **超时**：`ACTION_TIMEOUT_MS`（默认 30s）到点自动 check/fold；掉线玩家、以及已经点了"本手结束后离桌"的玩家，在轮次上只等 100ms 就被代打
 - **断线**：`RECONNECT_GRACE_MS`（默认 30s）内回来可以恢复；超时后不在局中就离座，在局中则保留座位到本手结束、`ready` 置 false 不再自动参与
 - **连续开局**：一手结算后停 `SETTLE_HOLD_MS`（默认 2.5s，给前端放结算浮层/动画）再尝试开下一手；期间有人离座/取消准备则自然不开
+- **盲注与前注**：固定 `10/20 ante 5`（前端只提供这一档）；ante 先于盲注缴纳、计入 `totalCommitted`/底池，但**不计入** `betThisStreet`；筹码不足 ante 时直接 all-in
+- **买入**：1 个买入 = **100 个 BB**（默认 2000 筹码），每人每桌最多 **50 个买入**；买入金额必须是整数个买入单位。创建牌局不选买入，固定 1 个；等待室默认 1 个
+- **补码（局内买入）**：`table:rebuy { tableId, units }`；两手之间立即生效；**手牌进行中**提交则记 `pendingBuyIn`，在该手结算后（`cleanupAfterHand`）补码，不能立刻改筹码
+- **街道动画延迟**：本街结束到下一条街发牌之间停 `STREET_DELAY_MS`（默认 1000ms）；期间 `board` 不变、不发 `action_request`；延迟结束广播新快照并附带 `game:street` 事件
+- **底池百分比**：前端在下注/跟注按钮上显示 `X%pot`（金额 ÷ 当前底池，四舍五入）
 
 ## 7. 动画时机（给前端/视觉）
 

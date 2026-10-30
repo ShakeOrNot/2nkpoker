@@ -685,8 +685,9 @@ export class Store {
         nickname: session.nickname,
         smallBlind: 10,
         bigBlind: 20,
+        ante: 5,
         maxSeats: 6,
-        buyIn: 1000,
+        buyIn: 2000,
       });
       // 关键：离线传输也要注册回调，否则连不上状态层（曾因此导致点了没反应）
       transport.setHandlers?.(this.buildHandlers());
@@ -1095,8 +1096,9 @@ export class Store {
     const me = moving ? this.state.room.snapshot?.seats?.find((s) => s.seat === mySeat) : null;
     const stake = moving ? Math.max(1, Number(me?.chips ?? 1)) : buyIn;
     if (!moving) {
-      const check = validateBuyIn(buyIn);
-      if (!check.ok) return { ok: false, code: 'INVALID_BUY_IN', message: errorText('INVALID_BUY_IN') };
+      const bb = Number(this.state.room.snapshot?.bigBlind ?? 20);
+      const check = validateBuyIn(buyIn, bb);
+      if (!check.ok) return { ok: false, code: 'INVALID_BUY_IN', message: check.message ?? errorText('INVALID_BUY_IN') };
     }
 
     const conn = await this.ensureSocket();
@@ -1140,6 +1142,44 @@ export class Store {
     this.log(`已入座（座位 ${res.seat}），带入 ${stake}`);
     upsertRecord({ roomId: tableId, buyIn: Math.floor(stake), nickname: this.state.session?.nickname ?? '' });
     return { ok: true, seat: res.seat };
+  }
+
+  /**
+   * 补码（买入）：units 个单位，1 个单位 = 100BB。
+   * 手牌进行中提交 → 服务端记 pending，本手结算后补码（不会立刻生效）。
+   * @param {number} [units]
+   * @returns {Promise<{ ok: boolean, code?: string, message?: string, pending?: boolean, amount?: number, chips?: number }>}
+   */
+  async rebuy(units = 1) {
+    const tableId = this.state.room.tableId;
+    if (!tableId) return { ok: false, code: 'TABLE_NOT_FOUND' };
+    if (this.mySeat() == null) return { ok: false, code: 'NOT_SEATED' };
+    const n = Math.max(1, Math.floor(Number(units) || 1));
+    const conn = await this.ensureSocket();
+    if (!conn.ok) return conn;
+
+    this.patch({ busy: true });
+    let res;
+    try {
+      res = await this.socket.request('table:rebuy', { tableId, units: n });
+    } catch (err) {
+      res = { ok: false, code: 'NETWORK', message: String(err?.message ?? err) };
+    } finally {
+      this.patch({ busy: false });
+    }
+    if (!res?.ok) {
+      const message = errorText(res?.code, '补码失败');
+      this.reportError(`补码失败：${message}`, { log: false });
+      return { ok: false, code: res?.code, message };
+    }
+    if (res.pending) {
+      this.log(`已申请 ${n} 个买入（${res.amount}），本手结算后补码`);
+      toast('已提交买入，本手结算后补码', 'info');
+    } else {
+      this.log(`已买入 ${n} 个（+${res.amount}），当前筹码 ${res.chips}`);
+      toast(`买入成功，当前筹码 ${res.chips}`, 'info');
+    }
+    return res;
   }
 
   /**

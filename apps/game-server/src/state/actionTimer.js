@@ -1,8 +1,11 @@
 import { playAction, cleanupAfterHand, maybeStartHand } from './handOrchestrator.js';
 import { recordHandResult } from './handStats.js';
+import { advancePendingStreet } from '@2nkpoker/poker-engine';
 import { broadcastTable } from '../ws/handlers/table.sit.js';
 
 const ACTION_TIMEOUT_MS = Number(process.env.ACTION_TIMEOUT_MS ?? 30000);
+/** 一条街结束到下一条街发牌之间的停顿（给前端做翻牌动画） */
+const STREET_DELAY_MS = Number(process.env.STREET_DELAY_MS ?? 1000);
 // 一手结束后停多久再开下一手：留给前端放结算动画/浮层。
 // 以前这里是立刻开下一手，浮层刚出现就被 hand:start 冲掉了。
 const SETTLE_HOLD_MS = Number(process.env.SETTLE_HOLD_MS ?? 2500);
@@ -12,6 +15,9 @@ const timers = new Map();
 /** 结算后"等一会儿再开下一手"的定时器，每桌一个，防重复 */
 /** @type {Map<string, NodeJS.Timeout>} */
 const nextHandTimers = new Map();
+/** 街道推进延迟定时器（翻牌/转牌/河牌前的 1 秒） */
+/** @type {Map<string, NodeJS.Timeout>} */
+const streetTimers = new Map();
 
 export function clearActionTimer(tableId) {
   const t = timers.get(tableId);
@@ -24,6 +30,48 @@ export function clearNextHandTimer(tableId) {
   const t = nextHandTimers.get(tableId);
   if (t) clearTimeout(t);
   nextHandTimers.delete(tableId);
+}
+
+/** 取消街道推进定时器（解散/清桌时用） */
+export function clearStreetTimer(tableId) {
+  const t = streetTimers.get(tableId);
+  if (t) clearTimeout(t);
+  streetTimers.delete(tableId);
+}
+
+/**
+ * 本街结束后延迟推进下一条街（1 秒动画时间）：
+ * 期间 board 不变、没有 action_request；到点后再广播新街 + 公共牌。
+ * @param {import('socket.io').Namespace} nsp
+ * @param {any} t
+ */
+export function scheduleStreetAdvance(nsp, t) {
+  clearStreetTimer(t.tableId);
+  const handId = t.handState?.handId;
+  const timer = setTimeout(() => {
+    streetTimers.delete(t.tableId);
+    t.actor.run(() => {
+      if (!t.handState || t.handState.handId !== handId || !t.handState.pendingStreetAdvance) return;
+      const { state } = advancePendingStreet(t.handState);
+      t.handState = state;
+      t.version += 1;
+
+      if (t.handState.settled) {
+        clearActionTimer(t.tableId);
+        broadcastResult(nsp, t, handId);
+        return;
+      }
+      broadcastTable(nsp, t);
+      // 给前端的显式动画事件（没有监听也不影响）
+      nsp.to(`table:${t.tableId}`).emit('game:street', {
+        handId,
+        street: t.handState.street,
+        board: [...t.handState.board],
+      });
+      broadcastActionRequest(nsp, t);
+    });
+  }, STREET_DELAY_MS);
+  streetTimers.set(t.tableId, timer);
 }
 
 /** 广播"这手牌开始" */
@@ -90,7 +138,7 @@ export function broadcastActionRequest(nsp, t) {
       const toCall = t.handState.currentBet - hs.betThisStreet;
       const action = toCall === 0 ? { type: 'check' } : { type: 'fold' };
 
-      const result = playAction(t, turnSeat, action, t.handState.version);
+      const result = playAction(t, turnSeat, action, t.handState.version, { deferStreet: true });
       if (!result.ok) return;
 
       nsp.to(`table:${t.tableId}`).emit('game:action_applied', {
@@ -103,6 +151,9 @@ export function broadcastActionRequest(nsp, t) {
 
       if (t.handState.settled) {
         broadcastResult(nsp, t, handId);
+      } else if (t.handState.pendingStreetAdvance) {
+        // 本街结束：停 1 秒再发下一条街，给前端动画时间
+        scheduleStreetAdvance(nsp, t);
       } else {
         broadcastActionRequest(nsp, t);
       }
@@ -113,6 +164,7 @@ export function broadcastActionRequest(nsp, t) {
 
 /** 广播结算 + 清理 + 尝试开下一手 */
 export function broadcastResult(nsp, t, handId) {
+  clearStreetTimer(t.tableId);
   // 结算明细需要的座位信息（昵称/投入/弃牌）必须随结果一起发出去：
   // 紧接着 cleanupAfterHand 会把 handState 清空，客户端手里就没有座位数据，
   // 结算浮层会因为"没有 seats"画不出来（这就是联机模式少结算框的原因）。

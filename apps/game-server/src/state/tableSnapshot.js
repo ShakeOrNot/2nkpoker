@@ -22,6 +22,9 @@ export function toTableSnapshot(t, forSeat = null) {
       connected: s.connected,
       // 手牌进行中点了「离桌」：本手结束后自动清座
       leaving: Boolean(s.leaving),
+      // 累计买入（筹码单位）与"本手结算后补码"的金额
+      buyInTotal: s.buyInTotal ?? null,
+      pendingBuyIn: s.pendingBuyIn ?? 0,
     });
   }
 
@@ -30,6 +33,7 @@ export function toTableSnapshot(t, forSeat = null) {
     version: t.version,
     smallBlind: t.smallBlind,
     bigBlind: t.bigBlind,
+    ante: t.ante ?? 0,
     buttonSeat: t.buttonSeat,
     maxSeats: t.maxSeats,
     seats,

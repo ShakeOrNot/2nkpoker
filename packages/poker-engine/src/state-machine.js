@@ -36,6 +36,7 @@ const STREETS = ['PREFLOP', 'FLOP', 'TURN', 'RIVER'];
  * @property {number} buttonSeat   必须是 players 里的某个真实座位；不合法时顺时针顺延
  * @property {number} smallBlind
  * @property {number} bigBlind
+ * @property {number} [ante]       每人每手固定 ante（默认 0）；先于盲注缴纳，计入总投入
  * @property {Array<{seat:number,userId?:string,nickname?:string,chips:number}>} players
  *   座位号只需唯一（0 起），**不需要连续**——6 个固定座位里有人离座会留下空洞
  */
@@ -47,6 +48,10 @@ const STREETS = ['PREFLOP', 'FLOP', 'TURN', 'RIVER'];
  */
 export function startHand(input) {
   const { handId, buttonSeat, smallBlind, bigBlind, players } = input;
+  const ante = Number(input.ante ?? 0);
+  if (!Number.isInteger(ante) || ante < 0) {
+    throw new Error(`startHand: ante must be a non-negative integer, got ${input.ante}`);
+  }
 
   if (!Array.isArray(players) || players.length < 2 || players.length > 6) {
     throw new Error('startHand: players must be 2~6');
@@ -92,6 +97,16 @@ export function startHand(input) {
     hasActedThisStreet: false,
   }));
 
+  // ante：每人每手固定投入（先于盲注，算进 totalCommitted，不计入 betThisStreet）
+  if (ante > 0) {
+    for (const s of seats) {
+      const pay = Math.min(ante, s.chips);
+      s.chips -= pay;
+      s.totalCommitted += pay;
+      if (s.chips === 0) s.allIn = true;
+    }
+  }
+
   // 盲注座位（单挑时按钮位就是 SB）
   const sbSeat = n === 2 ? btnSeat : nextOccupiedSeat(ring, btnSeat);
   const bbSeat = nextOccupiedSeat(ring, sbSeat);
@@ -115,6 +130,7 @@ export function startHand(input) {
     buttonSeat: btnSeat,
     smallBlind,
     bigBlind,
+    ante,
     seats,
     currentTurnSeat: null,
     lastAggressorSeat: bbSeat,
@@ -151,8 +167,9 @@ export function startHand(input) {
  * @param {{type:string,amount?:number}} action
  * @returns {{ state: any, events: any[] }}
  */
-export function applyAction(state, seat, action) {
+export function applyAction(state, seat, action, options = {}) {
   if (state.settled) throw new Error('applyAction: hand already settled');
+  if (state.pendingStreetAdvance) throw new Error(ActionError.NOT_YOUR_TURN);
   if (state.currentTurnSeat !== seat) {
     throw new Error(ActionError.NOT_YOUR_TURN);
   }
@@ -204,6 +221,19 @@ export function applyAction(state, seat, action) {
   // 找下一个行动者
   const nextSeat = findNextToAct(next, seat);
   if (nextSeat == null) {
+    // 本街结束：默认立刻推进下一条街；
+    // 传 { deferStreet: true } 时先挂起（给前端 1 秒动画时间），由 advancePendingStreet 推进。
+    if (options.deferStreet) {
+      next.pendingStreetAdvance = true;
+      next.currentTurnSeat = null;
+      return {
+        state: next,
+        events: [
+          { type: 'action', seat, action, pay, isRaise },
+          { type: 'round_end' },
+        ],
+      };
+    }
     return advanceStreet(next);
   }
   next.currentTurnSeat = nextSeat;
@@ -233,6 +263,8 @@ export function toSnapshot(state, forSeat = null) {
     buttonSeat: state.buttonSeat,
     smallBlind: state.smallBlind,
     bigBlind: state.bigBlind,
+    ante: state.ante ?? 0,
+    pendingStreetAdvance: Boolean(state.pendingStreetAdvance),
     seats: state.seats.map((s) => ({
       seat: s.seat,
       userId: s.userId,
@@ -313,8 +345,19 @@ function findNextToAct(state, fromSeat) {
   return null;
 }
 
-function advanceStreet(state) {
-  // 重置本街
+/**
+ * 推进被 deferStreet 挂起的下一条街。
+ * 没有挂起时原样返回（幂等，服务端定时器重复触发也安全）。
+ * @param {any} state
+ * @returns {{ state: any, events: any[] }}
+ */
+export function advancePendingStreet(state) {
+  if (!state?.pendingStreetAdvance) return { state, events: [] };
+  state.pendingStreetAdvance = false;
+  return advanceStreet(state);
+}
+
+function advanceStreet(state) {  // 重置本街
   for (const s of state.seats) {
     s.betThisStreet = 0;
     s.hasActedThisStreet = false;

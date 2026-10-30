@@ -44,8 +44,8 @@ async function main() {
   bob.emit('table:join', { tableId: TABLE_ID });
   await delay(300);
 
-  await new Promise((r) => alice.emit('table:sit', { tableId: TABLE_ID, seat: 0, buyIn: 1000 }, r));
-  await new Promise((r) => bob.emit('table:sit', { tableId: TABLE_ID, seat: 1, buyIn: 1000 }, r));
+  await new Promise((r) => alice.emit('table:sit', { tableId: TABLE_ID, seat: 0, buyIn: 2000 }, r));
+  await new Promise((r) => bob.emit('table:sit', { tableId: TABLE_ID, seat: 1, buyIn: 2000 }, r));
   await delay(300);
 
   await new Promise((r) => alice.emit('table:ready', { tableId: TABLE_ID, ready: true }, r));

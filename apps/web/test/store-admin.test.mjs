@@ -222,6 +222,28 @@ describe('管理面板接口（store ↔ HTTP）', () => {
     expect(calls[1].headers.Authorization).toBe('Bearer access-abc');
   });
 
+  it('补码：rebuy 走 table:rebuy，手牌中返回 pending', async () => {
+    const store = adminStore();
+    store.state.connection = 'online';
+    store.state.room.tableId = 't1';
+    store.state.room.snapshot = { seats: [{ seat: 0, userId: 'u_me', chips: 2000 }] };
+    const calls = [];
+    store.socket = {
+      request: async (event, payload) => {
+        calls.push({ event, payload });
+        return { ok: true, pending: true, amount: 4000, chips: 2000, applyAt: 'hand_end' };
+      },
+      close() {},
+    };
+
+    const res = await store.rebuy(2);
+    expect(res.ok).toBe(true);
+    expect(res.pending).toBe(true);
+    expect(calls[0].event).toBe('table:rebuy');
+    expect(calls[0].payload).toEqual({ tableId: 't1', units: 2 });
+    store.closeSocket();
+  });
+
   it('收到 table:closed / table:kicked 会清掉房间回大厅', () => {
     const store = adminStore();
     store.state.phase = 'table';

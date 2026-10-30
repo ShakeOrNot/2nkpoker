@@ -6,19 +6,18 @@
 /** 座位号上限（后端 TableSitSchema: seat -1~9，桌子 maxSeats=6） */
 export const MAX_SEATS = 6;
 
-/** 盲注档位（与后端 tableManager 的 smallBlind/bigBlind 语义一致；当前后端写死 10/20） */
-export const BLIND_LEVELS = [
-  { label: '10 / 20', smallBlind: 10, bigBlind: 20 },
-  { label: '25 / 50', smallBlind: 25, bigBlind: 50 },
-  { label: '50 / 100', smallBlind: 50, bigBlind: 100 },
-  { label: '100 / 200', smallBlind: 100, bigBlind: 200 },
-];
+/** 盲注档位：固定 10/20（不再提供 25/50、50/100、100/200） */
+export const BLIND_LEVELS = [{ label: '10 / 20', smallBlind: 10, bigBlind: 20 }];
 
 export const DEFAULT_BLIND_INDEX = 0;
 
-/** 带入筹码范围：后端 handler 实际限制为 100~100000 */
-export const MIN_BUY_IN = 100;
-export const MAX_BUY_IN = 100000;
+/** 一个买入 = 100 个 BB；每人最多 50 个买入 */
+export const BUY_IN_BB = 100;
+export const MAX_BUY_IN_UNITS = 50;
+
+/** 默认档（10/20）下的带入范围：1~50 个买入 */
+export const MIN_BUY_IN = 20 * BUY_IN_BB;
+export const MAX_BUY_IN = MIN_BUY_IN * MAX_BUY_IN_UNITS;
 
 /** 结算后重新准备前的最短展示时间（毫秒） */
 export const RESULT_HOLD_MS = 4500;
@@ -75,7 +74,7 @@ export const ERROR_TEXT = {
   HAND_NOT_ACTIVE: '当前没有进行中的牌局',
   HAND_IN_PROGRESS: '牌局进行中，暂时不能入座或离座',
   ALREADY_SEATED: '你已经在这张牌局里了',
-  INVALID_BUY_IN: `带入筹码必须在 ${MIN_BUY_IN}~${MAX_BUY_IN} 之间`,
+  INVALID_BUY_IN: `买入必须是整数个买入单位（1 个买入 = 100BB），最多 ${MAX_BUY_IN_UNITS} 个`,
   INVALID_PAYLOAD: '请求格式不对，请刷新页面重试',
   RATE_LIMITED: '操作太快了，稍等一下',
   INTERNAL_ERROR: '服务异常，请稍后重试',

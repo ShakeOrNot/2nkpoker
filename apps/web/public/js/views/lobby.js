@@ -10,8 +10,8 @@
 import { View, button, labelled, node, setDisabled, setText, tag } from './base.js';
 import { toast, copyText } from '../core/dom.js';
 import { stakeText, ago, percent } from '../core/format.js';
-import { BLIND_LEVELS, MAX_SEATS, MIN_BUY_IN, MAX_BUY_IN } from '../core/constants.js';
-import { defaultRoomConfig, normalizeRoomInput, isValidRoomId, shareUrl } from '../core/logic.js';
+import { BLIND_LEVELS, MAX_SEATS, BUY_IN_BB } from '../core/constants.js';
+import { normalizeRoomInput, isValidRoomId, shareUrl } from '../core/logic.js';
 import { loadRecords, mergeRooms, forgetRecord } from '../net/roomStore.js';
 import * as api from '../net/api.js';
 import { notifyFailure } from '../net/api.js';
@@ -336,8 +336,6 @@ export class LobbyView extends View {
     const card = this.createCard;
     card.appendChild(tag('h3', 'card-title', '创建牌局'));
 
-    const cfg = defaultRoomConfig(0);
-
     const seatField = node('field');
     seatField.appendChild(tag('label', 'field-label', '座位数'));
     this.seatRow = node('chip-row');
@@ -368,7 +366,6 @@ export class LobbyView extends View {
           this.blindIndex = idx;
           for (const child of this.blindRow.children) child.classList.remove('chip-active');
           b.classList.add('chip-active');
-          this.buyInInput.value = String(level.bigBlind * 50);
         },
       });
       this.blindRow.appendChild(b);
@@ -376,34 +373,11 @@ export class LobbyView extends View {
     blindField.appendChild(this.blindRow);
     card.appendChild(blindField);
 
-    const buyField = node('field');
-    buyField.appendChild(tag('label', 'field-label', `带入筹码（${MIN_BUY_IN}~${MAX_BUY_IN}）`));
-    this.buyInInput = tag('input', 'input input-number');
-    this.buyInInput.type = 'number';
-    this.buyInInput.inputMode = 'numeric';
-    this.buyInInput.value = String(cfg.buyIn);
-    this.buyInInput.min = String(MIN_BUY_IN);
-    this.buyInInput.max = String(MAX_BUY_IN);
-    this.buyInInput.step = '100';
-    buyField.appendChild(this.buyInInput);
-
-    const quickBuy = node('chip-row');
-    for (const mult of [20, 50, 100]) {
-      quickBuy.appendChild(
-        button({
-          label: `${mult} BB`,
-          className: 'chip chip-sm',
-          onClick: () => {
-            const bb = BLIND_LEVELS[this.blindIndex]?.bigBlind ?? 20;
-            this.buyInInput.value = String(Math.min(MAX_BUY_IN, bb * mult));
-          },
-        }),
-      );
-    }
-    buyField.appendChild(quickBuy);
-    card.appendChild(buyField);
-
-    const hint = tag('p', 'hint', '创建后会进入等待室，把房号或邀请链接发给朋友即可加入。');
+    const hint = tag(
+      'p',
+      'hint',
+      '创建后进入等待室，默认带 1 个买入（100BB=2000）；把房号或邀请链接发给朋友即可加入。',
+    );
     card.appendChild(hint);
 
     this.createBtn = button({
@@ -421,7 +395,8 @@ export class LobbyView extends View {
       maxSeats: this.seatValue,
       smallBlind: level.smallBlind,
       bigBlind: level.bigBlind,
-      buyIn: Math.floor(Number(this.buyInInput.value) || level.bigBlind * 50),
+      ante: 5,
+      buyIn: level.bigBlind * BUY_IN_BB,
     };
     setDisabled(this.createBtn, true);
     const res = await this.store.createRoom(cfg);

@@ -124,8 +124,8 @@ async function main() {
   await emitAck(bob, 'table:join', { tableId: TABLE_ID });
 
   // 关键：故意坐在 0 和 3 —— 中间隔着两个空座位
-  const aSit = await emitAck(alice, 'table:sit', { tableId: TABLE_ID, seat: 0, buyIn: 1000 });
-  const bSit = await emitAck(bob, 'table:sit', { tableId: TABLE_ID, seat: 3, buyIn: 1000 });
+  const aSit = await emitAck(alice, 'table:sit', { tableId: TABLE_ID, seat: 0, buyIn: 2000 });
+  const bSit = await emitAck(bob, 'table:sit', { tableId: TABLE_ID, seat: 3, buyIn: 2000 });
   check(aSit.ok && aSit.seat === 0, `Alice 入座 0（ack: ${JSON.stringify(aSit)}）`);
   check(bSit.ok && bSit.seat === 3, `Bob 入座 3（ack: ${JSON.stringify(bSit)}）`);
 

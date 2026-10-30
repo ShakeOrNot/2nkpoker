@@ -1,4 +1,4 @@
-import { TableSitSchema, TableLeaveSchema, parseOrError } from '../validate.js';
+import { TableSitSchema, TableLeaveSchema, TableRebuySchema, parseOrError } from '../validate.js';
 import {
   getOrCreateTable,
   getTable,
@@ -9,8 +9,32 @@ import {
 import { toTableSnapshot } from '../../state/tableSnapshot.js';
 import { requestLeave } from '../../state/handOrchestrator.js';
 
-const MIN_BUY_IN = 100;
-const MAX_BUY_IN = 100000;
+/** 1 个买入 = 100 个 BB；最多 50 个买入 */
+const BUY_IN_BB = 100;
+const MAX_BUY_IN_UNITS = 50;
+
+/**
+ * 这张桌子的一个买入单位值多少筹码
+ * @param {any} t
+ */
+function buyInUnit(t) {
+  return Math.max(1, Number(t.bigBlind) || 20) * BUY_IN_BB;
+}
+
+/**
+ * 买入必须正好是 1~50 个买入单位
+ * @param {any} t
+ * @param {number} buyIn
+ */
+function isValidBuyIn(t, buyIn) {
+  const unit = buyInUnit(t);
+  return (
+    Number.isInteger(buyIn) &&
+    buyIn >= unit &&
+    buyIn <= unit * MAX_BUY_IN_UNITS &&
+    buyIn % unit === 0
+  );
+}
 
 /**
  * @param {import('socket.io').Namespace} nsp
@@ -71,8 +95,12 @@ export function registerTableSit(nsp, socket) {
       }
 
       // 新入座才校验买入（换座沿用原筹码，不重新买入）
-      if (buyIn < MIN_BUY_IN || buyIn > MAX_BUY_IN) {
-        return replyAck(ack, { ok: false, code: 'INVALID_BUY_IN', message: `buyIn must be ${MIN_BUY_IN}~${MAX_BUY_IN}` });
+      if (!isValidBuyIn(t, buyIn)) {
+        return replyAck(ack, {
+          ok: false,
+          code: 'INVALID_BUY_IN',
+          message: `1 个买入 = ${buyInUnit(t)} 筹码（100BB），最少 1 个、最多 ${MAX_BUY_IN_UNITS} 个`,
+        });
       }
 
       const free = findFreeSeat(t, preferredSeat);
@@ -116,6 +144,7 @@ export function registerTableSit(nsp, socket) {
         userId,
         nickname: nickname ?? `user_${userId.slice(0, 6)}`,
         chips: buyIn,
+        buyInTotal: buyIn,
         ready: false,
         connected: true,
       });
@@ -128,6 +157,56 @@ export function registerTableSit(nsp, socket) {
 
       broadcastTable(nsp, t);
       replyAck(ack, { ok: true, seat: free });
+    });
+  });
+
+  /* ---------------- 补码（买入）：手牌中提交 → 本手结算时生效 ---------------- */
+  socket.on('table:rebuy', (payload, ack) => {
+    const parsed = parseOrError(TableRebuySchema, payload);
+    if (!parsed.ok) return replyAck(ack, { ok: false, code: parsed.code, message: parsed.message });
+    const { tableId, units } = parsed.data;
+    const t = getTable(tableId);
+    if (!t) return replyAck(ack, { ok: false, code: 'TABLE_NOT_FOUND' });
+
+    const userId = socket.data.userId;
+    t.actor.run(() => {
+      const seat = t.userToSeat.get(userId);
+      if (seat == null) return replyAck(ack, { ok: false, code: 'NOT_SEATED' });
+      const s = t.seats.get(seat);
+      if (!s) return replyAck(ack, { ok: false, code: 'NOT_SEATED' });
+
+      const unit = buyInUnit(t);
+      const amount = units * unit;
+      const already = (s.buyInTotal ?? s.chips) + (s.pendingBuyIn ?? 0);
+      if (already + amount > unit * MAX_BUY_IN_UNITS) {
+        return replyAck(ack, {
+          ok: false,
+          code: 'BUY_IN_LIMIT',
+          message: `最多 ${MAX_BUY_IN_UNITS} 个买入（已用 ${Math.floor(already / unit)} 个）`,
+        });
+      }
+
+      const inHand = Boolean(t.handState && !t.handState.settled);
+      if (inHand) {
+        // 手牌进行中：不能立刻补码，先记下，结算时（cleanupAfterHand）生效
+        s.pendingBuyIn = (s.pendingBuyIn ?? 0) + amount;
+        t.version += 1;
+        broadcastTable(nsp, t);
+        return replyAck(ack, {
+          ok: true,
+          pending: true,
+          amount,
+          applyAt: 'hand_end',
+          chips: s.chips,
+        });
+      }
+
+      s.chips += amount;
+      s.buyInTotal = (s.buyInTotal ?? 0) + amount;
+      s.pendingBuyIn = 0;
+      t.version += 1;
+      broadcastTable(nsp, t);
+      return replyAck(ack, { ok: true, pending: false, amount, chips: s.chips });
     });
   });
 

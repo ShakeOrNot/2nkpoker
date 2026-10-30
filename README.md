@@ -64,6 +64,7 @@ cp .env.example .env      # Windows: copy .env.example .env
 | `ACTION_TIMEOUT_MS` | 30000 | 轮到某人行动的超时，超时自动过牌/弃牌 |
 | `RECONNECT_GRACE_MS` | 30000 | 掉线后保留座位的宽限期 |
 | `SETTLE_HOLD_MS` | 2500 | 一手结束后停多久再开下一手（放结算动画） |
+| `STREET_DELAY_MS` | 1000 | 翻牌/转牌/河牌前的停留时间（给前端动画） |
 | `AUTH_DB_PATH` | `var/2nkpoker.db` | SQLite 用户库位置（默认仓库根 `var/`，已 gitignore） |
 | `ACCESS_TTL_MS` | 900000 | access token 有效期（15 分钟） |
 | `REFRESH_TTL_MS` | 604800000 | 刷新令牌有效期（7 天） |
@@ -84,6 +85,8 @@ node start.mjs --watch        # 后端改代码自动重启
 
 - **第一次来**：登录页切到「注册」，填昵称 + 口令（昵称就是登录名，2~20 字符；支持 `zgz@2nkpoker.com` 这种邮箱式昵称）
 - **一个人试玩**：登录页直接点「离线练习（不需要后端）」，或注册后进大厅创建牌局
+- **牌桌规则**：盲注固定 10/20 + 前注 ante 5；创建牌局固定带 **1 个买入（100BB=2000）**，进等待室后默认也是 1 个；每人最多 50 个买入；牌桌里点「买入」可补码——手牌进行中提交会在**本手结算后**补码，不会立刻生效
+- **下注提示**：跟注/加注按钮会显示金额占底池的比例（如 `20 · 13%pot`）
 - **两个人试玩**：开一个**普通窗口** + 一个**无痕窗口**，各注册/登录一个账号。普通窗口的多个标签共用同一登录态，坐不成两个玩家
 - **手机试玩**：同一 Wi-Fi，用启动时打印的「同一 Wi-Fi」地址
 
@@ -148,6 +151,7 @@ node apps/web/test/run-tests.mjs
 node scripts/auth-smoke.js          # 注册 → 登录 → 刷新 → 改密 → 登出（真 HTTP）
 node scripts/admin-smoke.js         # 管理员：列表 / 搜索 / 禁用 / 提权 / 审计（真 HTTP）
 node scripts/stats-smoke.js         # 两个真人账号打一手 → 查战绩接口（真 HTTP + WS）
+node scripts/rebuy-smoke.js         # 手牌中补码延后到结算、两手之间立即生效（真 HTTP + WS）
 node scripts/play-smoke.js          # 两人真实打完一手
 node scripts/table-smoke.js         # 入座/站起/快照同步
 node scripts/seat-smoke.js          # 换座 + 手牌中离桌（本手结束后生效）

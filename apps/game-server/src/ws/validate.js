@@ -14,6 +14,12 @@ export const TableSitSchema = z.object({
   buyIn: z.number().int().positive().max(1000000),
 });
 
+/** 补码（买入）：units = 几个买入单位（1 个买入 = 100BB） */
+export const TableRebuySchema = z.object({
+  tableId: z.string().min(1).max(64),
+  units: z.number().int().min(1).max(50),
+});
+
 export const TableReadySchema = z.object({
   tableId: z.string().min(1).max(64),
   ready: z.boolean(),

@@ -41,6 +41,8 @@ export function getOrCreateTable(tableId) {
       version: 0,
       smallBlind: 10,
       bigBlind: 20,
+      /** 每人每手前注（固定 5） */
+      ante: 5,
       buttonSeat: 0,
       seats: new Map(),
       userToSeat: new Map(),
@@ -83,6 +85,10 @@ export function createTable(tableId, config = {}) {
     const n = Number(config.bigBlind);
     if (Number.isFinite(n) && n > 0) t.bigBlind = n;
   }
+  if (config.ante != null) {
+    const n = Number(config.ante);
+    if (Number.isInteger(n) && n >= 0 && n <= 1000) t.ante = n;
+  }
   t.createdAt = Date.now();
   explicitlyCreated.add(tableId);
   return t;
@@ -105,6 +111,7 @@ export function listTables() {
       hasHand: Boolean(t.handState && !t.handState.settled),
       smallBlind: t.smallBlind,
       bigBlind: t.bigBlind,
+      ante: t.ante ?? 0,
       createdAt: t.createdAt ?? Date.now(),
     });
   }
@@ -168,6 +175,7 @@ export function listTableDetails() {
       tableId: t.tableId,
       smallBlind: t.smallBlind,
       bigBlind: t.bigBlind,
+      ante: t.ante ?? 0,
       maxSeats: t.maxSeats,
       createdAt: t.createdAt ?? null,
       hasHand: Boolean(t.handState && !t.handState.settled),
@@ -180,6 +188,8 @@ export function listTableDetails() {
           ready: Boolean(s.ready),
           connected: Boolean(s.connected),
           leaving: Boolean(s.leaving),
+          buyInTotal: s.buyInTotal ?? null,
+          pendingBuyIn: s.pendingBuyIn ?? 0,
         }))
         .sort((a, b) => a.seat - b.seat),
     });

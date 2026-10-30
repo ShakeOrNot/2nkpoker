@@ -7,6 +7,7 @@ import {
   broadcastActionRequest,
   broadcastResult,
   clearActionTimer,
+  scheduleStreetAdvance,
 } from '../../state/actionTimer.js';
 
 export function registerGameAction(nsp, socket) {
@@ -26,17 +27,20 @@ export function registerGameAction(nsp, socket) {
     t.actor.run(() => {
       // 入池率按"翻牌前的主动投钱动作"算，必须在应用动作前判断街
       const wasPreflop = t.handState?.street === 'PREFLOP';
-      const result = playAction(t, seat, action, expectedVersion);
+      const result = playAction(t, seat, action, expectedVersion, { deferStreet: true });
       if (!result.ok) return replyAck(ack, result);
       if (wasPreflop) notePreflopAction(t, seat, action.type);
+      clearActionTimer(tableId);
 
       nsp.to(`table:${tableId}`).emit('game:action_applied', { seat, action, handId });
       broadcastTable(nsp, t);
 
       if (t.handState.settled) {
-        clearActionTimer(tableId);
         // broadcastResult 内部会在 SETTLE_HOLD_MS 后自己开下一手（留时间给结算动画）
         broadcastResult(nsp, t, handId);
+      } else if (t.handState.pendingStreetAdvance) {
+        // 本街结束：停 STREET_DELAY_MS 再发下一条街（翻牌/转牌/河牌），给前端动画时间
+        scheduleStreetAdvance(nsp, t);
       } else {
         broadcastActionRequest(nsp, t);
       }

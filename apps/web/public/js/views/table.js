@@ -6,10 +6,10 @@
  *   - 用 JS 计算座位顺序（把自己转到最下方）和椭圆角度（传进 CSS 变量）
  */
 
-import { View, button, node, setDisabled, setText, tag } from './base.js';
+import { View, button, labelled, node, setDisabled, setText, tag } from './base.js';
 import { toast } from '../core/dom.js';
 import { chips, cardText } from '../core/format.js';
-import { MAX_BUY_IN, MIN_BUY_IN, RESULT_HOLD_MS } from '../core/constants.js';
+import { BUY_IN_BB, MAX_BUY_IN_UNITS, RESULT_HOLD_MS } from '../core/constants.js';
 import {
   bestCategory,
   settlement,
@@ -139,6 +139,12 @@ export class TableView extends View {
     myInfo.appendChild(this.myNameEl);
     myInfo.appendChild(this.myChipsEl);
     myInfo.appendChild(this.myHandEl);
+    this.rebuyBtn = button({
+      label: '买入',
+      className: 'btn-ghost btn-xs',
+      onClick: () => this.openRebuy(),
+    });
+    myInfo.appendChild(this.rebuyBtn);
     myCards.appendChild(myInfo);
     mine.appendChild(myCards);
     this.myZoneEl = mine;
@@ -164,7 +170,30 @@ export class TableView extends View {
     /* 结算浮层 */
     this.resultOverlay = node('result-overlay');
     this.root.appendChild(this.resultOverlay);
-  }
+
+    /* 买入（补码）弹窗：手牌中提交 → 本手结算后生效 */
+    this.rebuyOverlay = node('modal-overlay');
+    const rebuyCard = node('modal-card');
+    rebuyCard.appendChild(tag('h3', 'modal-title', '买入（补码）'));
+    this.rebuyHint = tag('p', 'modal-hint', '');
+    rebuyCard.appendChild(this.rebuyHint);
+    this.rebuyInput = tag('input', 'input');
+    this.rebuyInput.type = 'number';
+    this.rebuyInput.min = '1';
+    this.rebuyInput.max = String(MAX_BUY_IN_UNITS);
+    this.rebuyInput.step = '1';
+    this.rebuyInput.value = '1';
+    rebuyCard.appendChild(labelled('买入个数（1 个 = 100BB）', this.rebuyInput));
+    const rebuyActions = node('modal-actions');
+    rebuyActions.appendChild(button({ label: '取消', className: 'btn-ghost', onClick: () => this.closeRebuy() }));
+    this.rebuySubmit = button({ label: '确认买入', className: 'btn-primary', onClick: () => void this.submitRebuy() });
+    rebuyActions.appendChild(this.rebuySubmit);
+    rebuyCard.appendChild(rebuyActions);
+    this.rebuyOverlay.appendChild(rebuyCard);
+    this.rebuyOverlay.addEventListener('click', (ev) => {
+      if (ev.target === this.rebuyOverlay) this.closeRebuy();
+    });
+    this.root.appendChild(this.rebuyOverlay);  }
 
   /** 退出：离线模式顺手关掉离线开关，避免下次登录还是离线 */
   doExit() {
@@ -182,7 +211,7 @@ export class TableView extends View {
 
   async sitNow() {
     const snap = this.store.state.room.snapshot;
-    const buyIn = Math.min(MAX_BUY_IN, Math.max(MIN_BUY_IN, Number(snap?.bigBlind ?? 20) * 50));
+    const buyIn = Number(snap?.bigBlind ?? 20) * BUY_IN_BB;
     const res = await this.store.sit(null, buyIn);
     if (!res.ok) toast(res.message || '入座失败（牌局进行中需要等本手结束）', 'error');
   }
@@ -310,7 +339,14 @@ export class TableView extends View {
     const category = holeCards.length ? bestCategory(holeCards, hand?.board ?? []) : null;
     const myPos = positionOf(hand, mySeat) || tablePositionOf(snap, mySeat);
     setText(this.myNameEl, me ? `${me.nickname}${myPos ? ` · ${myPos}` : ''}` : '未入座');
-    setText(this.myChipsEl, myHandSeat ? `筹码 ${chips(myHandSeat.chips)}` : me ? `筹码 ${chips(me.chips)}` : '');
+    const pendingBuyIn = Number(me?.pendingBuyIn ?? 0);
+    const pendingText = pendingBuyIn > 0 ? `（+${chips(pendingBuyIn)} 结算后补码）` : '';
+    setText(
+      this.myChipsEl,
+      `${myHandSeat ? `筹码 ${chips(myHandSeat.chips)}` : me ? `筹码 ${chips(me.chips)}` : ''}${pendingText}`,
+    );
+    // 只有坐下的人才能买入
+    this.rebuyBtn.classList.toggle('hidden', !seated);
     setText(
       this.myHandEl,
       category ? `牌型：${category.name}` : myHandSeat?.folded ? '已弃牌' : '',
@@ -371,7 +407,7 @@ export class TableView extends View {
    */
   async sitAt(seat) {
     const snap = this.store.state.room.snapshot;
-    const buyIn = Math.min(MAX_BUY_IN, Math.max(MIN_BUY_IN, Number(snap?.bigBlind ?? 20) * 50));
+    const buyIn = Number(snap?.bigBlind ?? 20) * BUY_IN_BB;
     const moving = this.store.mySeat() != null;
     const res = await this.store.sit(seat, buyIn);
     if (!res.ok) toast(res.message || (moving ? '换座失败' : '该座位入座失败'), 'error');
@@ -462,6 +498,45 @@ export class TableView extends View {
    * @param {any} state
    * @param {any} hand
    */
+  /* ---------------- 买入（补码） ---------------- */
+
+  openRebuy() {
+    const snap = this.store.state.room.snapshot;
+    const mySeat = this.store.mySeat();
+    if (mySeat == null) {
+      toast('先坐下才能买入', 'info');
+      return;
+    }
+    const bb = Number(snap?.bigBlind ?? 20);
+    const unit = bb * BUY_IN_BB;
+    const me = snap?.seats?.find((s) => s.seat === mySeat);
+    const pending = Number(me?.pendingBuyIn ?? 0);
+    const pendingText = pending > 0 ? `；已有 ${pending} 筹码等待本手结算后补码` : '';
+    setText(
+      this.rebuyHint,
+      `1 个买入 = ${unit} 筹码（100BB）；当前筹码 ${me?.chips ?? 0}；最多 ${MAX_BUY_IN_UNITS} 个买入${pendingText}。手牌进行中会延到本手结算后补码。`,
+    );
+    this.rebuyInput.value = '1';
+    this.rebuyOverlay.classList.add('visible');
+    this.rebuyInput.focus?.();
+  }
+
+  closeRebuy() {
+    this.rebuyOverlay.classList.remove('visible');
+  }
+
+  async submitRebuy() {
+    const units = Math.max(1, Math.floor(Number(this.rebuyInput.value) || 1));
+    if (units > MAX_BUY_IN_UNITS) {
+      toast(`最多 ${MAX_BUY_IN_UNITS} 个买入`, 'error');
+      return;
+    }
+    setDisabled(this.rebuySubmit, true);
+    const res = await this.store.rebuy(units);
+    setDisabled(this.rebuySubmit, false);
+    if (res.ok) this.closeRebuy();
+  }
+
   renderResult(state, hand) {
     const last = state.room.lastResult;
     const hasResult = Boolean(last?.result) || Boolean(hand?.settled && hand?.result);

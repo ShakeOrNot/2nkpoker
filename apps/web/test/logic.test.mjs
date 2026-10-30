@@ -97,28 +97,40 @@ describe('房间号', () => {
 });
 
 describe('牌局配置校验', () => {
-  it('带入筹码范围与后端一致（100~100000）', () => {
+  it('买入按"1 个 = 100BB"的整数倍校验（默认档 2000~100000）', () => {
     expect(validateBuyIn(MIN_BUY_IN).ok).toBe(true);
     expect(validateBuyIn(MAX_BUY_IN).ok).toBe(true);
     expect(validateBuyIn(MIN_BUY_IN - 1).ok).toBe(false);
     expect(validateBuyIn(MAX_BUY_IN + 1).ok).toBe(false);
+    expect(validateBuyIn(2500).ok).toBe(false); // 不是 2000 的整数倍
     expect(validateBuyIn(NaN).ok).toBe(false);
+    // 25/50 档：1 个买入 = 5000
+    expect(validateBuyIn(5000, 50).ok).toBe(true);
+    expect(validateBuyIn(2000, 50).ok).toBe(false);
   });
 
   it('座位数 2~6，盲注要合法', () => {
-    expect(validateRoomConfig({ maxSeats: 2, smallBlind: 10, bigBlind: 20, buyIn: 1000 }).ok).toBe(true);
-    expect(validateRoomConfig({ maxSeats: 6, smallBlind: 10, bigBlind: 20, buyIn: 1000 }).ok).toBe(true);
-    expect(validateRoomConfig({ maxSeats: 7, smallBlind: 10, bigBlind: 20, buyIn: 1000 }).ok).toBe(false);
-    expect(validateRoomConfig({ maxSeats: 1, smallBlind: 10, bigBlind: 20, buyIn: 1000 }).ok).toBe(false);
-    expect(validateRoomConfig({ maxSeats: 6, smallBlind: 50, bigBlind: 20, buyIn: 1000 }).ok).toBe(false);
+    expect(validateRoomConfig({ maxSeats: 2, smallBlind: 10, bigBlind: 20, buyIn: 2000 }).ok).toBe(true);
+    expect(validateRoomConfig({ maxSeats: 6, smallBlind: 10, bigBlind: 20, buyIn: 2000 }).ok).toBe(true);
+    expect(validateRoomConfig({ maxSeats: 7, smallBlind: 10, bigBlind: 20, buyIn: 2000 }).ok).toBe(false);
+    expect(validateRoomConfig({ maxSeats: 1, smallBlind: 10, bigBlind: 20, buyIn: 2000 }).ok).toBe(false);
+    expect(validateRoomConfig({ maxSeats: 6, smallBlind: 50, bigBlind: 20, buyIn: 2000 }).ok).toBe(false);
     expect(validateRoomConfig({ maxSeats: 6, smallBlind: 10, bigBlind: 20, buyIn: 50 }).ok).toBe(false);
+    expect(validateRoomConfig({ maxSeats: 6, smallBlind: 10, bigBlind: 20, ante: -1 }).ok).toBe(false);
+  });
+
+  it('盲注只保留 10/20 一档', () => {
+    expect(BLIND_LEVELS.length).toBe(1);
+    expect(BLIND_LEVELS[0].smallBlind).toBe(10);
+    expect(BLIND_LEVELS[0].bigBlind).toBe(20);
   });
 
   it('默认配置跟随盲注档位', () => {
     const cfg = defaultRoomConfig(0);
     expect(cfg.smallBlind).toBe(BLIND_LEVELS[0].smallBlind);
     expect(cfg.bigBlind).toBe(BLIND_LEVELS[0].bigBlind);
-    expect(cfg.buyIn).toBe(BLIND_LEVELS[0].bigBlind * 50);
+    expect(cfg.buyIn).toBe(BLIND_LEVELS[0].bigBlind * 100);
+    expect(cfg.ante).toBe(5);
     expect(cfg.maxSeats).toBe(6);
   });
 });

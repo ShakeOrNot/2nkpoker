@@ -92,7 +92,7 @@ async function main() {
     socket.emit('table:join', { tableId: TABLE_ID }, () => {});
     await new Promise((r) => setTimeout(r, 100));
     const sit = await new Promise((r) =>
-      socket.emit('table:sit', { tableId: TABLE_ID, seat, buyIn: 1000 }, r),
+      socket.emit('table:sit', { tableId: TABLE_ID, seat, buyIn: 2000 }, r),
     );
     check(sit.ok === true, `座位 ${seat} 坐下成功`);
   }

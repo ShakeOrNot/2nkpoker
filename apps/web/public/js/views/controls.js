@@ -196,9 +196,10 @@ export class ControlsView {
     const isRaise = (hand.currentBet ?? 0) > 0;
     const verb = isRaise ? '加注到' : '下注';
 
-    setText(this.submitBtn, `${verb} ${value > 0 ? chips(check.clamped || value) : '—'}`);
+    const target = check.clamped || value;
+    const potText = value > 0 && Number(hand.pot ?? 0) > 0 ? ` · ${potPercent(target, hand.pot)}pot` : '';
+    setText(this.submitBtn, `${verb} ${value > 0 ? chips(target) : '—'}${potText}`);
     setDisabled(this.submitBtn, !check.ok);
-
     const parts = [];
     if (value > 0) {
       parts.push(`占底池 ${potPercent(value, hand.pot ?? 0)}`);
@@ -279,7 +280,9 @@ export class ControlsView {
     this.foldBtn.classList.toggle('hidden', !legal.has('fold'));
     this.checkBtn.classList.toggle('hidden', !legal.has('check'));
     this.callBtn.classList.toggle('hidden', !legal.has('call'));
-    setText(this.callBtn, callAmount > 0 ? `跟注 ${chips(callAmount)}` : '跟注');
+    const callPotText =
+      callAmount > 0 && Number(hand?.pot ?? 0) > 0 ? ` · ${potPercent(callAmount, hand.pot)}pot` : '';
+    setText(this.callBtn, callAmount > 0 ? `跟注 ${chips(callAmount)}${callPotText}` : '跟注');
 
     const canBet = legal.has('bet') || legal.has('raise');
     this.amountLabel.parentElement?.classList.toggle('hidden', !canBet);
