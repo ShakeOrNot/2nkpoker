@@ -81,8 +81,8 @@ describe('牌面格式互转', () => {
 });
 
 describe('远端地址识别', () => {
-  it('已知远端 IP 会自动走适配层', () => {
-    expect(needsRemoteAdapter('http://43.135.53.83:3000')).toBe(true);
+  it('不再按 IP 自动切换适配层（避免部署到同一 IP 后被误判）', () => {
+    expect(needsRemoteAdapter('http://43.135.53.83:3000')).toBe(false);
     expect(needsRemoteAdapter('http://127.0.0.1:3001')).toBe(false);
     expect(needsRemoteAdapter('')).toBe(false);
   });

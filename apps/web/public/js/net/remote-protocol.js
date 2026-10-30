@@ -675,10 +675,9 @@ export class RemoteProtocolSocket {
 }
 
 /**
- * 判断某个地址是否是"另一种协议"的远端（用于自动切换适配层）
- * @param {string} wsBase
+ * 兼容旧调用：不再按地址自动判断远端协议，统一由 store 的 ?proto=remote 显式开启。
  * @returns {boolean}
  */
-export function needsRemoteAdapter(wsBase) {
-  return /43\.135\.53\.83/i.test(String(wsBase ?? ''));
+export function needsRemoteAdapter() {
+  return false;
 }

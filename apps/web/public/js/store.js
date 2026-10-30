@@ -37,7 +37,7 @@ import {
 import * as api from './net/api.js';
 import { GameSocket, isAuthError } from './net/socket.js';
 import { createMockSocket } from './net/mock-socket.js';
-import { RemoteProtocolSocket, needsRemoteAdapter } from './net/remote-protocol.js';
+import { RemoteProtocolSocket } from './net/remote-protocol.js';
 import { upsertRecord } from './net/roomStore.js';
 
 /** @typedef {'login'|'lobby'|'waiting'|'table'|'admin'} Phase */
@@ -638,15 +638,14 @@ export class Store {
 
   /**
    * 当前是否要使用"远端另一种协议"的适配层。
-   * ?proto=remote|local 是硬开关；auto 时按地址自动判断（含已知远端 IP）。
+   * 只在显式 ?proto=remote 时启用：不能再按 IP 猜，
+   * 否则把项目部署到 43.135.53.83 后，同源访问会被误判成远端协议，表现为
+   * "能登录但连不上服务器"。
    * @returns {boolean}
    */
   usesRemoteAdapter() {
     if (this.state.offline) return false;
-    if (this.state.proto === 'remote') return true;
-    if (this.state.proto === 'local') return false;
-    const { wsBase, apiBase } = this.state.serverConfig;
-    return needsRemoteAdapter(wsBase) || needsRemoteAdapter(apiBase);
+    return this.state.proto === 'remote';
   }
 
   /* ------------------------------------------------------------------ *

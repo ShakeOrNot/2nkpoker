@@ -213,6 +213,24 @@ describe('传输层接口契约（曾经的"点了没反应"根因）', () => {
     expect(bad.ok).toBe(false);
     expect(bad.code).toBe('INVALID_PAYLOAD');
   });
+
+  it('同源 IP 不会误走远端协议适配层（部署到 43.135.53.83 的回归）', async () => {
+    const { Store } = await import('../public/js/store.js');
+    const store = new Store();
+    store.state.offline = false;
+    store.state.serverConfig = {
+      apiBase: 'http://43.135.53.83',
+      wsBase: 'http://43.135.53.83',
+      source: 'same-origin',
+    };
+
+    store.state.proto = 'auto';
+    expect(store.usesRemoteAdapter()).toBe(false);
+
+    // 只有显式 ?proto=remote 才走适配层
+    store.state.proto = 'remote';
+    expect(store.usesRemoteAdapter()).toBe(true);
+  });
 });
 
 beforeAll(async () => {
