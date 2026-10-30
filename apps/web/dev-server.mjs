@@ -152,6 +152,20 @@ const server = createServer(async (req, res) => {
   }
 
   let file = resolveFile(urlPath === '/' ? '/index.html' : urlPath);
+
+  // 浏览器/爬虫可能绕过 <link rel="icon"> 直接请求 /favicon.ico：
+  // 映射到 favicon.svg，避免控制台一直报 404。
+  if (urlPath === '/favicon.ico') {
+    try {
+      const body = await readFile(join(ROOT, 'favicon.svg'));
+      res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' });
+      res.end(body);
+      return;
+    } catch {
+      /* 没有图标就继续走正常的 404 */
+    }
+  }
+
   if (!file) {
     res.writeHead(403).end('forbidden');
     return;
