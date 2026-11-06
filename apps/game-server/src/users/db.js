@@ -43,9 +43,20 @@ export function initDb(path = process.env.AUTH_DB_PATH || defaultPath) {
  */
 function migrate(database) {
   const cols = database.prepare('PRAGMA table_info(player_hands)').all().map((c) => c.name);
-  if (!cols.includes('category')) {
-    database.exec('ALTER TABLE player_hands ADD COLUMN category TEXT');
-  }
+  const add = (name, ddl) => {
+    if (!cols.includes(name)) database.exec(`ALTER TABLE player_hands ADD COLUMN ${name} ${ddl}`);
+  };
+  add('category', 'TEXT');
+  add('hole_cards', 'TEXT');
+  add('hand_class', 'TEXT');
+  add('category_weight', 'REAL');
+  add('allin', 'INTEGER NOT NULL DEFAULT 0');
+  add('pot', 'INTEGER');
+  add('invested', 'INTEGER');
+  add('equity_allin', 'REAL');
+  add('expected_net', 'INTEGER');
+  add('player_count', 'INTEGER');
+  add('equity_preflop', 'REAL');
 }
 
 /**

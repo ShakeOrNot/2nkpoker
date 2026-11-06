@@ -116,7 +116,9 @@ node scripts/create-users.mjs users.json [--force]
 node scripts/cleanup-users.mjs --dry-run
 ```
 
-**我的战绩**（每个玩家大厅右上角「我的战绩」）：只看自己的手数、入池率、胜率、摊牌率、摊牌胜率、净筹码；下方还有**成就**——手数（牌海行者）、胜场（常胜将军）、累计盈利（筹码巨鳄，只算赢的手、不扣亏损），以及 10 种牌型的收集进度，等级用 I~VI 表示；管理员在「管理 → 统计」里看全站。
+**我的战绩**（每个玩家大厅右上角「我的战绩」）：只看自己的手数、入池率、胜率、摊牌率、摊牌胜率、净筹码；下方还有**成就**——手数（牌海行者）、胜场（常胜将军）、累计盈利（筹码巨鳄，只算赢的手、不扣亏损），以及 10 种牌型的收集进度，等级用 I~VI 表示；再往下是 **LuckyHands / UnluckyHands**：跑马收益偏移、起手牌胜率偏差、牌力质量偏差三项各取一个最大/最小（手牌类需 n≥10）。管理员在「管理 → 统计」里看全站。
+
+> 起手牌期望胜率来自 [169hands.com](https://169hands.com/169hands-equity.csv)：vs 1 对手为精确枚举，vs 2~8 对手为蒙特卡洛；每手按实际入局人数取对应值。牌型权重和 μ/σ 由 `scripts/build-hand-odds.mjs` 生成到 `apps/game-server/src/users/hand-odds.json`。
 
 **管理员面板**（`role=admin` 的账号在大厅右上角能看到「管理」）：
 
@@ -151,6 +153,7 @@ node apps/web/test/run-tests.mjs
 node scripts/auth-smoke.js          # 注册 → 登录 → 刷新 → 改密 → 登出（真 HTTP）
 node scripts/admin-smoke.js         # 管理员：列表 / 搜索 / 禁用 / 提权 / 审计（真 HTTP）
 node scripts/stats-smoke.js         # 两个真人账号打一手 → 查战绩接口（真 HTTP + WS）
+node scripts/allin-smoke.js         # 翻前 all-in 跑马 → 战绩里出现跑马收益/期望（真 HTTP + WS）
 node scripts/rebuy-smoke.js         # 手牌中补码延后到结算、两手之间立即生效（真 HTTP + WS）
 node scripts/play-smoke.js          # 两人真实打完一手
 node scripts/table-smoke.js         # 入座/站起/快照同步

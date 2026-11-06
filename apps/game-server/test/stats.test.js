@@ -1,6 +1,6 @@
 import './helpers/env.js';
 import { describe, it, expect } from 'vitest';
-import { initDb } from '../src/users/db.js';
+import { initDb, getDb } from '../src/users/db.js';
 import { createUser } from '../src/users/userStore.js';
 import { clearAllStats, listUserStats, recordHandStats, statsForUser } from '../src/users/statsStore.js';
 import { recordHandResult, notePreflopAction, beginHandStats } from '../src/state/handStats.js';
@@ -159,6 +159,73 @@ describe('结算记账', () => {
     const profit = s.achievements.series.find((x) => x.key === 'profit');
     expect(profit.value).toBe(10);
     expect(profit.level).toBe(0); // 累计盈利 10 < 1000
+  });
+
+  it('跑马结算写入 equity、期望收益和手牌分类', () => {
+    const { a, b } = seedUsers();
+    const t = {
+      tableId: 't-allin',
+      handStats: {
+        vpip: new Set(),
+        at: 1,
+        runout: {
+          board: [],
+          seats: [
+            { seat: 0, holeCards: ['As', 'Ah'] },
+            { seat: 1, holeCards: ['Ks', 'Kh'] },
+          ],
+        },
+      },
+      handState: {
+        handId: 'hand_allin',
+        settled: true,
+        board: ['2c', '7d', '9h', 'Jd', '3s'],
+        seats: [
+          { seat: 0, userId: a.id, totalCommitted: 500, allIn: true, holeCards: ['As', 'Ah'] },
+          { seat: 1, userId: b.id, totalCommitted: 500, allIn: true, holeCards: ['Ks', 'Kh'] },
+        ],
+        result: {
+          payouts: { 0: 1000 },
+          revealed: { 0: ['As', 'Ah'], 1: ['Ks', 'Kh'] },
+          forcedWinnerSeat: null,
+        },
+      },
+    };
+    recordHandResult(t);
+
+    const sa = statsForUser(a.id);
+    expect(sa.luck.runoutCount).toBe(1);
+    const item = sa.luck.lucky.find((x) => x.kind === 'runout');
+    expect(item.handClass).toBe('AA');
+    expect(item.expected).toBeGreaterThan(100);
+    expect(item.actual).toBe(500);
+    expect(item.deviation).toBe(500 - item.expected);
+  });
+
+  it('起手期望胜率按实际入局人数取（3 人池用 vs 2 对手）', () => {
+    const { a, b } = seedUsers();
+    const c = createUser({ nickname: `p3_${Date.now().toString(36)}`, passwordHash: 'x' });
+    const t = {
+      tableId: 't-3p',
+      handStats: { vpip: new Set(), at: 1, runout: null },
+      handState: {
+        handId: 'hand_3p',
+        settled: true,
+        board: ['2c', '7d', '9h', 'Jd', '3s'],
+        seats: [
+          { seat: 0, userId: a.id, totalCommitted: 10, allIn: false, holeCards: ['As', 'Ah'] },
+          { seat: 1, userId: b.id, totalCommitted: 10, allIn: false, holeCards: ['Ks', 'Kh'] },
+          { seat: 2, userId: c.id, totalCommitted: 10, allIn: false, holeCards: ['Qs', 'Qh'] },
+        ],
+        result: { payouts: { 0: 30 }, revealed: {}, forcedWinnerSeat: 0 },
+      },
+    };
+    recordHandResult(t);
+    const row = getDb()
+      .prepare('SELECT equity_preflop FROM player_hands WHERE hand_id = ? AND user_id = ?')
+      .get('hand_3p', a.id);
+    // AA vs 2 个对手 = 0.735（169hands 表）
+    expect(Math.round(row.equity_preflop * 1000) / 1000).toBe(0.735);
   });
 
   it('notePreflopAction：跟注/加注算入池，过牌/弃牌不算', () => {

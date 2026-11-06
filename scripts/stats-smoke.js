@@ -129,6 +129,7 @@ async function main() {
     typeof statA.stats.profit === 'number' && statA.stats.profit >= 0,
     '累计盈利字段存在（只算赢的手）',
   );
+  check(Boolean(statA.stats.luck && Array.isArray(statA.stats.luck.lucky)), 'Lucky/Unlucky 字段存在');
   console.log('  A 牌型统计:', JSON.stringify(statA.stats.categories ?? {}));
 
   for (const [name, s] of [

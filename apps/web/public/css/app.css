@@ -1715,6 +1715,60 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
   color: var(--muted);
 }
 
+/* LuckyHands / UnluckyHands */
+.luck-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.luck-block {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.luck-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #ffd76a;
+}
+
+.luck-empty {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.luck-row {
+  display: grid;
+  grid-template-columns: 76px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+}
+
+.luck-kind {
+  color: var(--muted);
+}
+
+.luck-hand {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.luck-detail {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 /* 顶部"登录已过期"横幅：页面不跳走，点右侧按钮才回登录页 */
 .auth-banner {
   display: none;

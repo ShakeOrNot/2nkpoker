@@ -1,5 +1,6 @@
 import { getDb } from './db.js';
 import { computeAchievements } from './achievements.js';
+import { luckForUser } from './luck.js';
 
 /**
  * @typedef {Object} HandStatRow
@@ -25,8 +26,9 @@ export function recordHandStats(rows) {
   const db = getDb();
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO player_hands
-       (hand_id, user_id, table_id, played_at, vpip, showdown, won, showdown_won, net, category)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (hand_id, user_id, table_id, played_at, vpip, showdown, won, showdown_won, net,
+        category, hole_cards, hand_class, category_weight, allin, pot, invested, equity_allin, expected_net, player_count, equity_preflop)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   let written = 0;
   const tx = db.prepare('BEGIN');
@@ -44,6 +46,16 @@ export function recordHandStats(rows) {
         row.showdownWon ? 1 : 0,
         Number(row.net) || 0,
         row.category ?? null,
+        row.holeCards ?? null,
+        row.handClass ?? null,
+        row.categoryWeight ?? null,
+        row.allin ? 1 : 0,
+        row.pot ?? null,
+        row.invested ?? null,
+        row.equityAllin ?? null,
+        row.expectedNet ?? null,
+        row.playerCount ?? null,
+        row.equityPreflop ?? null,
       );
       written += Number(res.changes ?? 0);
     }
@@ -119,6 +131,7 @@ export function statsForUser(userId) {
   const stats = toStats(row);
   stats.categories = categoryCounts(userId);
   stats.achievements = computeAchievements(stats);
+  stats.luck = luckForUser(userId);
   return stats;
 }
 

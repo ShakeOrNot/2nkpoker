@@ -1,6 +1,6 @@
 import { startHand, applyAction, nextOccupiedSeat } from '@2nkpoker/poker-engine';
 import { findFreeSeat } from './tableManager.js';
-import { beginHandStats } from './handStats.js';
+import { beginHandStats, captureRunout } from './handStats.js';
 
 /**
  * 检查是否该开局。满足条件就 startHand 并返回 true
@@ -46,6 +46,16 @@ export function maybeStartHand(t) {
   t.version += 1;
   beginHandStats(t);
 
+  // 开局就自动跑马（筹码不足/多人都 all-in）：all-in 那一刻是翻前，公共牌为空
+  if (state.settled) {
+    t.handStats.runout = {
+      board: [],
+      seats: state.seats
+        .filter((s) => !s.folded)
+        .map((s) => ({ seat: s.seat, holeCards: [...s.holeCards] })),
+    };
+  }
+
   for (const hs of state.seats) {
     const seat = t.seats.get(hs.seat);
     if (seat) seat.chips = hs.chips;
@@ -80,6 +90,7 @@ export function playAction(t, seat, action, expectedVersion, options = {}) {
   }
   t.handState = result.state;
   t.version += 1;
+  captureRunout(t);
 
   // 同步筹码回座位
   for (const hs of t.handState.seats) {

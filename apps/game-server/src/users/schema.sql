@@ -58,6 +58,17 @@ CREATE TABLE IF NOT EXISTS player_hands (
   net           INTEGER NOT NULL DEFAULT 0,
   -- 摊牌时的最终牌型（ROYAL_FLUSH/…/HIGH_CARD），没摊牌为 NULL
   category      TEXT,
+  -- 起手牌与跑马统计（v2）
+  hole_cards       TEXT,
+  hand_class       TEXT,
+  category_weight  REAL,
+  allin            INTEGER NOT NULL DEFAULT 0,
+  pot              INTEGER,
+  invested         INTEGER,
+  equity_allin     REAL,
+  expected_net     INTEGER,
+  player_count     INTEGER,
+  equity_preflop   REAL,
   PRIMARY KEY (hand_id, user_id)
 );
 

@@ -529,7 +529,25 @@ try {
     throw new Error(`成就等级没渲染：${firstLevel?.textContent}`);
   }
 
-  console.log('  ok    我的战绩弹窗能开能关，离线隐藏入口，成就能渲染');
+  /* Lucky / Unlucky：两个 block，每个 3 行 */
+  views.lobby.renderLuck({
+    lucky: [
+      { kind: 'runout', title: '跑马收益', handClass: 'AA', holeCards: 'AsAh', actual: 500, expected: 100, deviation: 400 },
+      { kind: 'winrate', title: '起手牌胜率', handClass: 'AA', n: 10, actual: 1, expected: 0.852, z: 1.28 },
+      { kind: 'strength', title: '牌力质量', handClass: 'AA', n: 10, actual: 3.7, expected: 1.48, z: 14.6 },
+    ],
+    unlucky: [
+      { kind: 'runout', title: '跑马收益', handClass: 'KK', holeCards: 'KsKh', actual: -500, expected: 300, deviation: -800 },
+      { kind: 'winrate', title: '起手牌胜率', handClass: '72o', n: 10, actual: 0, expected: 0.346, z: -2.3 },
+      { kind: 'strength', title: '牌力质量', handClass: '72o', n: 10, actual: 1, expected: 1.25, z: -2.3 },
+    ],
+  });
+  if (views.lobby.luckBody.children.length !== 2) throw new Error('Lucky/Unlucky 两个区块没渲染');
+  if (views.lobby.luckBody.children[0].children.length !== 4) {
+    throw new Error(`Lucky 区块行数不对：${views.lobby.luckBody.children[0].children.length}`);
+  }
+
+  console.log('  ok    我的战绩弹窗能开能关，离线隐藏入口，成就/Lucky 能渲染');
 } catch (err) {
   failed++;
   console.log(`  FAIL  我的战绩: ${err?.message ?? err}`);

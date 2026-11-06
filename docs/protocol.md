@@ -84,6 +84,12 @@
 - `achievements`：`{ series, handTypes }`，每条含 `name`、`value`、`level`(0~6)、`levelName`(`I`~`VI`)、`next`、`levels`
   - series：牌海行者（手数）、常胜将军（胜场）、筹码巨鳄（累计净赢），阈值 1/10/100/1k/10k/100k（盈利 1k/5k/20k/100k/500k/2M）
   - handTypes：10 种牌型，每种按 1/10/100/1k/10k/100k 计等级
+- `luck`：`{ lucky, unlucky, runoutCount, minSample }`，三项指标各取一个最大/最小：
+  - **跑马收益偏移**（`allin=1` 且摊牌）：`Δ = 实际净收益 − 期望净收益`；期望 = all-in 那一刻的 equity × 总池 − 投入（equity 用剩余公共牌枚举/模拟）
+  - **起手牌胜率偏差**：按 169 类聚合，期望按该手**实际入局人数**取 169hands 的 vs (N-1) 个对手数据（2~8 人）；`Z = (实际胜率 − 期望胜率) / sqrt(p(1-p)/n)`；`n ≥ 10`
+  - **牌力质量偏差**：权重 `w_i = 1 − log10(P(最终牌型 ≥ i))`（高牌=1、皇家≈5.49）；`Z = (样本均值 − μ_h) / (σ_h/√n)`，μ/σ 由 169 类模拟得到；`n ≥ 10`
+  - 数据源：169 类翻前 equity 来自 [169hands.com](https://169hands.com/169hands-equity.csv)（vs 1 对手精确枚举，vs 2~8 对手蒙特卡洛）；`hand-odds.json` 由 `scripts/build-hand-odds.mjs` 生成
+  - 限制：期望收益按总池平分估算（未拆边池）；历史手牌没有底牌，只有上线后的手牌进入这几项统计
 
 ## 3. HTTP 接口
 

@@ -140,6 +140,9 @@ export class LobbyView extends View {
     statsCard.appendChild(tag('h4', 'achievements-title', '成就'));
     this.achBody = node('achievements');
     statsCard.appendChild(this.achBody);
+    statsCard.appendChild(tag('h4', 'achievements-title', 'LuckyHands / UnluckyHands'));
+    this.luckBody = node('luck-lists');
+    statsCard.appendChild(this.luckBody);
     const statsActions = node('modal-actions');
     statsActions.appendChild(button({ label: '刷新', className: 'btn-ghost', onClick: () => void this.loadStats() }));
     statsActions.appendChild(button({ label: '关闭', className: 'btn-primary', onClick: () => this.closeStats() }));
@@ -558,6 +561,56 @@ export class LobbyView extends View {
     }
 
     this.renderAchievements(stats.achievements);
+    this.renderLuck(stats.luck);
+  }
+
+  /**
+   * LuckyHands / UnluckyHands：三项指标各一个最大/最小
+   * @param {{ lucky?: any[], unlucky?: any[], runoutCount?: number }} [luck]
+   */
+  renderLuck(luck) {
+    this.luckBody.replaceChildren();
+    if (!luck) return;
+    this.luckBody.appendChild(this.luckBlock('LuckyHands', luck.lucky));
+    this.luckBody.appendChild(this.luckBlock('UnluckyHands', luck.unlucky));
+  }
+
+  /**
+   * @param {string} title
+   * @param {any[]} [items]
+   */
+  luckBlock(title, items) {
+    const wrap = node('luck-block');
+    wrap.appendChild(tag('div', 'luck-title', title));
+    if (!items?.length) {
+      wrap.appendChild(tag('div', 'luck-empty', '样本不足，继续打牌'));
+      return wrap;
+    }
+    for (const item of items) {
+      const row = node('luck-row');
+      row.appendChild(tag('span', 'luck-kind', item.title));
+      const hand =
+        item.kind === 'runout'
+          ? `${item.handClass} ${String(item.holeCards ?? '').replace(/(.{2})/g, '$1 ').trim()}`
+          : item.handClass;
+      row.appendChild(tag('span', 'luck-hand', hand));
+      row.appendChild(tag('span', 'luck-detail', this.luckDetail(item)));
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
+  /** @param {any} item */
+  luckDetail(item) {
+    if (item.kind === 'runout') {
+      const d = Number(item.deviation ?? 0);
+      return `实际 ${item.actual} / 期望 ${item.expected}（Δ ${d >= 0 ? '+' : ''}${d}）`;
+    }
+    const z = Number(item.z ?? 0).toFixed(2);
+    if (item.kind === 'winrate') {
+      return `实际 ${percent(item.actual, 1)} / 期望 ${percent(item.expected, 1)} · z ${z}（n=${item.n}）`;
+    }
+    return `实均 ${Number(item.actual).toFixed(2)} / 期望 ${Number(item.expected).toFixed(2)} · z ${z}（n=${item.n}）`;
   }
 
   /**
