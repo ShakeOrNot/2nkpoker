@@ -75,7 +75,15 @@
 | `winRate` 胜率 | 本手净赢筹码 > 0 的手数 / 总手数 |
 | `showdownRate` 摊牌率 | 本手有亮牌（`result.revealed` 里有该座位）的手数 / 总手数 |
 | `showdownWinRate` 摊牌胜率 | 亮牌且净赢的手数 / 亮牌手数 |
-| `net` | 累计净筹码（payouts − totalCommitted） |
+| `net` | 累计净筹码（payouts − totalCommitted，含亏损） |
+| `profit` | 累计盈利：只累加净赢的手（`net > 0` 的部分），不扣亏损；成就「筹码巨鳄」用它 |
+
+`/auth/me/stats` 额外返回：
+
+- `categories`：摊牌亮出的最终牌型计数（`ROYAL_FLUSH` / `STRAIGHT_FLUSH` / … / `HIGH_CARD`，未摊牌不计）
+- `achievements`：`{ series, handTypes }`，每条含 `name`、`value`、`level`(0~6)、`levelName`(`I`~`VI`)、`next`、`levels`
+  - series：牌海行者（手数）、常胜将军（胜场）、筹码巨鳄（累计净赢），阈值 1/10/100/1k/10k/100k（盈利 1k/5k/20k/100k/500k/2M）
+  - handTypes：10 种牌型，每种按 1/10/100/1k/10k/100k 计等级
 
 ## 3. HTTP 接口
 

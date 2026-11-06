@@ -1,4 +1,19 @@
 import { recordHandStats } from '../users/statsStore.js';
+import { evaluate7 } from '@2nkpoker/poker-engine';
+
+/** 引擎的牌型编号 → 战绩库里的字符串 */
+const CATEGORY_NAMES = [
+  'HIGH_CARD',
+  'ONE_PAIR',
+  'TWO_PAIR',
+  'THREE_OF_A_KIND',
+  'STRAIGHT',
+  'FLUSH',
+  'FULL_HOUSE',
+  'FOUR_OF_A_KIND',
+  'STRAIGHT_FLUSH',
+  'ROYAL_FLUSH',
+];
 
 /**
  * 一手牌开始：初始化本手的统计累加器
@@ -45,6 +60,16 @@ export function recordHandResult(t) {
     const committed = Number(s.totalCommitted ?? 0);
     const net = paid - committed;
     const showdown = Boolean(revealed[s.seat]);
+    /** @type {string|null} */
+    let category = null;
+    if (showdown) {
+      try {
+        const hv = evaluate7([...s.holeCards, ...hand.board]);
+        category = CATEGORY_NAMES[hv.category] ?? null;
+      } catch {
+        category = null;
+      }
+    }
     rows.push({
       handId: hand.handId,
       userId: s.userId,
@@ -55,6 +80,7 @@ export function recordHandResult(t) {
       won: net > 0 ? 1 : 0,
       showdownWon: showdown && net > 0 ? 1 : 0,
       net,
+      category,
     });
   }
 

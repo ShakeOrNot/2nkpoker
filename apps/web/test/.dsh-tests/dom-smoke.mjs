@@ -505,7 +505,31 @@ try {
   views.lobby.render(appStore.state);
   if (views.lobby.myStatsBtn.classList.contains('hidden')) throw new Error('在线模式「我的战绩」被藏起来了');
 
-  console.log('  ok    我的战绩弹窗能开能关，离线隐藏入口');
+  /* 成就列表：3 条累计 + 小标题 + 10 种牌型 = 14 行 */
+  views.lobby.renderAchievements({
+    series: [
+      { name: '牌海行者', level: 2, levelName: 'II', value: 10, next: 100, unit: '手', desc: '打的手牌数' },
+      { name: '常胜将军', level: 0, levelName: '', value: 0, next: 1, unit: '胜' },
+      { name: '筹码巨鳄', level: 1, levelName: 'I', value: 1000, next: 5000, unit: '筹码' },
+    ],
+    handTypes: Array.from({ length: 10 }, (_, i) => ({
+      name: `牌型${i}`,
+      level: i === 0 ? 1 : 0,
+      levelName: i === 0 ? 'I' : '',
+      value: i === 0 ? 1 : 0,
+      next: 10,
+      unit: '次',
+    })),
+  });
+  if (views.lobby.achBody.children.length !== 14) {
+    throw new Error(`成就列表行数不对：${views.lobby.achBody.children.length}`);
+  }
+  const firstLevel = views.lobby.achBody.children[0].children[1];
+  if (!firstLevel || !String(firstLevel.textContent).includes('II')) {
+    throw new Error(`成就等级没渲染：${firstLevel?.textContent}`);
+  }
+
+  console.log('  ok    我的战绩弹窗能开能关，离线隐藏入口，成就能渲染');
 } catch (err) {
   failed++;
   console.log(`  FAIL  我的战绩: ${err?.message ?? err}`);

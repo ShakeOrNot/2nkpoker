@@ -38,6 +38,7 @@ describe('战绩存取', () => {
     expect(Math.round(sa.showdownRate * 1000) / 1000).toBe(0.667);
     expect(sa.showdownWinRate).toBe(0.5);
     expect(sa.net).toBe(50);
+    expect(sa.profit).toBe(100); // 只算赢的 100，不扣 -20/-30
 
     const sb = statsForUser(b.id);
     expect(sb.hands).toBe(1);
@@ -122,6 +123,42 @@ describe('结算记账', () => {
     expect(sb.showdowns).toBe(1);
     expect(sb.showdownWins).toBe(0);
     expect(sb.net).toBe(-100);
+  });
+
+  it('摊牌牌型入库、聚合数量并进入成就', () => {
+    const { a } = seedUsers();
+    const t = {
+      tableId: 't-cat',
+      handStats: { vpip: new Set([a.id]), at: 1 },
+      handState: {
+        handId: 'hand_cat',
+        settled: true,
+        board: ['As', 'Ks', 'Qs', '2d', '7c'],
+        seats: [{ seat: 0, userId: a.id, totalCommitted: 10, holeCards: ['Js', 'Ts'] }],
+        result: {
+          payouts: { 0: 20 },
+          revealed: { 0: ['Js', 'Ts'] },
+          forcedWinnerSeat: null,
+        },
+      },
+    };
+    recordHandResult(t);
+
+    const s = statsForUser(a.id);
+    expect(s.categories.ROYAL_FLUSH).toBe(1);
+
+    const royal = s.achievements.handTypes.find((h) => h.key === 'ROYAL_FLUSH');
+    expect(royal.value).toBe(1);
+    expect(royal.level).toBe(1);
+    expect(royal.levelName).toBe('I');
+
+    const hands = s.achievements.series.find((x) => x.key === 'hands');
+    expect(hands.value).toBe(1);
+    expect(hands.levelName).toBe('I');
+
+    const profit = s.achievements.series.find((x) => x.key === 'profit');
+    expect(profit.value).toBe(10);
+    expect(profit.level).toBe(0); // 累计盈利 10 < 1000
   });
 
   it('notePreflopAction：跟注/加注算入池，过牌/弃牌不算', () => {

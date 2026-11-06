@@ -33,7 +33,19 @@ export function initDb(path = process.env.AUTH_DB_PATH || defaultPath) {
   }
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(readFileSync(schemaFile, 'utf8'));
+  migrate(db);
   return db;
+}
+
+/**
+ * 轻量迁移：老库补字段（CREATE TABLE IF NOT EXISTS 不会改已有表）
+ * @param {DatabaseSync} database
+ */
+function migrate(database) {
+  const cols = database.prepare('PRAGMA table_info(player_hands)').all().map((c) => c.name);
+  if (!cols.includes('category')) {
+    database.exec('ALTER TABLE player_hands ADD COLUMN category TEXT');
+  }
 }
 
 /**

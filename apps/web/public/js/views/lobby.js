@@ -137,6 +137,9 @@ export class LobbyView extends View {
     statsCard.appendChild(this.statsHint);
     this.statsBody = node('stats-grid');
     statsCard.appendChild(this.statsBody);
+    statsCard.appendChild(tag('h4', 'achievements-title', '成就'));
+    this.achBody = node('achievements');
+    statsCard.appendChild(this.achBody);
     const statsActions = node('modal-actions');
     statsActions.appendChild(button({ label: '刷新', className: 'btn-ghost', onClick: () => void this.loadStats() }));
     statsActions.appendChild(button({ label: '关闭', className: 'btn-primary', onClick: () => this.closeStats() }));
@@ -521,6 +524,7 @@ export class LobbyView extends View {
   async loadStats() {
     setText(this.statsHint, '加载中…');
     this.statsBody.replaceChildren();
+    this.achBody.replaceChildren();
     const res = await this.store.myStats();
     if (!res.ok) {
       setText(this.statsHint, res.message ?? '加载战绩失败');
@@ -532,8 +536,12 @@ export class LobbyView extends View {
       return;
     }
     const net = Number(stats.net ?? 0);
+    const profit = Number(stats.profit ?? 0);
     const last = stats.lastPlayedAt ? ` · 最近 ${ago(Number(stats.lastPlayedAt))}` : '';
-    setText(this.statsHint, `共 ${stats.hands} 手 · 净 ${net >= 0 ? '+' : ''}${net} 筹码${last}`);
+    setText(
+      this.statsHint,
+      `共 ${stats.hands} 手 · 净 ${net >= 0 ? '+' : ''}${net} · 累计盈利 +${profit}${last}`,
+    );
 
     const items = [
       ['入池率', percent(stats.vpipRate, stats.hands), `${stats.vpipHands ?? 0} 手主动入池`],
@@ -548,6 +556,42 @@ export class LobbyView extends View {
       cell.appendChild(tag('div', 'stats-sub', sub));
       this.statsBody.appendChild(cell);
     }
+
+    this.renderAchievements(stats.achievements);
+  }
+
+  /**
+   * 成就列表：三大累计成就 + 牌型收集
+   * @param {{ series: any[], handTypes: any[] }} [achievements]
+   */
+  renderAchievements(achievements) {
+    this.achBody.replaceChildren();
+    if (!achievements) return;
+    for (const item of achievements.series ?? []) {
+      this.achBody.appendChild(this.achievementRow(item, item.unit));
+    }
+    this.achBody.appendChild(
+      tag('div', 'ach-subtitle', '牌型收集（摊牌亮出的最终牌型）'),
+    );
+    for (const item of achievements.handTypes ?? []) {
+      this.achBody.appendChild(this.achievementRow(item, '次'));
+    }
+  }
+
+  /**
+   * @param {any} item
+   * @param {string} unit
+   */
+  achievementRow(item, unit) {
+    const row = node('ach-row');
+    row.title = item.desc || item.name;
+    row.appendChild(tag('span', 'ach-name', item.name));
+    const level = tag('span', `ach-level${item.level ? ' ach-unlocked' : ''}`, item.levelName || '未解锁');
+    row.appendChild(level);
+    const progress =
+      item.next == null ? '已满级' : `${item.value ?? 0} / ${item.next} ${unit}`.trim();
+    row.appendChild(tag('span', 'ach-progress', progress));
+    return row;
   }
 
   /**

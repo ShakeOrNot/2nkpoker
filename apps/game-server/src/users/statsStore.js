@@ -1,4 +1,5 @@
 import { getDb } from './db.js';
+import { computeAchievements } from './achievements.js';
 
 /**
  * @typedef {Object} HandStatRow
@@ -11,6 +12,7 @@ import { getDb } from './db.js';
  * @property {number} won
  * @property {number} showdownWon
  * @property {number} net
+ * @property {string|null} [category]
  */
 
 /**
@@ -23,8 +25,8 @@ export function recordHandStats(rows) {
   const db = getDb();
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO player_hands
-       (hand_id, user_id, table_id, played_at, vpip, showdown, won, showdown_won, net)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (hand_id, user_id, table_id, played_at, vpip, showdown, won, showdown_won, net, category)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   let written = 0;
   const tx = db.prepare('BEGIN');
@@ -41,6 +43,7 @@ export function recordHandStats(rows) {
         row.won ? 1 : 0,
         row.showdownWon ? 1 : 0,
         Number(row.net) || 0,
+        row.category ?? null,
       );
       written += Number(res.changes ?? 0);
     }
@@ -77,6 +80,8 @@ export function toStats(row) {
     showdowns,
     showdownWins,
     net: Number(row?.net ?? 0),
+    /** 累计盈利：只累加赢的手（不含亏损），和 net 净收益不是一回事 */
+    profit: Number(row?.profit ?? 0),
     lastPlayedAt: row?.last_played_at ?? null,
     vpipRate: rate(vpipHands, hands),
     winRate: rate(wins, hands),
@@ -93,6 +98,7 @@ const STATS_COLUMNS = `
   COALESCE(SUM(p.showdown), 0) AS showdowns,
   COALESCE(SUM(p.showdown_won), 0) AS showdown_wins,
   COALESCE(SUM(p.net), 0) AS net,
+  COALESCE(SUM(CASE WHEN p.net > 0 THEN p.net ELSE 0 END), 0) AS profit,
   MAX(p.played_at) AS last_played_at`;
 
 /**
@@ -109,7 +115,31 @@ export function statsForUser(userId) {
        GROUP BY u.id`,
     )
     .get(String(userId));
-  return row ? toStats(row) : null;
+  if (!row) return null;
+  const stats = toStats(row);
+  stats.categories = categoryCounts(userId);
+  stats.achievements = computeAchievements(stats);
+  return stats;
+}
+
+/**
+ * 各牌型在摊牌时出现的次数（未摊牌的手不计）
+ * @param {string} userId
+ * @returns {Record<string, number>}
+ */
+export function categoryCounts(userId) {
+  const rows = getDb()
+    .prepare(
+      `SELECT category, COUNT(*) AS n
+       FROM player_hands
+       WHERE user_id = ? AND category IS NOT NULL
+       GROUP BY category`,
+    )
+    .all(String(userId));
+  /** @type {Record<string, number>} */
+  const out = {};
+  for (const r of rows) out[r.category] = Number(r.n);
+  return out;
 }
 
 /**

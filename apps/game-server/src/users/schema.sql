@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS player_hands (
   won           INTEGER NOT NULL DEFAULT 0,
   showdown_won  INTEGER NOT NULL DEFAULT 0,
   net           INTEGER NOT NULL DEFAULT 0,
+  -- 摊牌时的最终牌型（ROYAL_FLUSH/…/HIGH_CARD），没摊牌为 NULL
+  category      TEXT,
   PRIMARY KEY (hand_id, user_id)
 );
 

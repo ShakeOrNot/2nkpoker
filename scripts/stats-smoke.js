@@ -117,6 +117,19 @@ async function main() {
   check(statA.ok && statB.ok, '两个账号都能拿到自己的战绩');
   check(statA.stats.hands >= 1 && statB.stats.hands >= 1, '双方都记了至少一手');
   check(statA.stats.hands === statB.stats.hands, '同一手牌双方手数一致');
+  check(
+    Array.isArray(statA.stats.achievements?.series) && statA.stats.achievements.series.length === 3,
+    '成就有 3 条累计系列（手数/胜场/盈利）',
+  );
+  check(
+    Array.isArray(statA.stats.achievements?.handTypes) && statA.stats.achievements.handTypes.length === 10,
+    '牌型收集有 10 种',
+  );
+  check(
+    typeof statA.stats.profit === 'number' && statA.stats.profit >= 0,
+    '累计盈利字段存在（只算赢的手）',
+  );
+  console.log('  A 牌型统计:', JSON.stringify(statA.stats.categories ?? {}));
 
   for (const [name, s] of [
     ['A', statA.stats],

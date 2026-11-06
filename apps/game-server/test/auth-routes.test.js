@@ -500,6 +500,13 @@ describe('战绩接口', () => {
     expect(stats.showdowns).toBe(1);
     expect(stats.showdownWins).toBe(1);
     expect(stats.net).toBe(20);
+    expect(stats.profit).toBe(40); // 只算赢的 40，不扣 -20
+    // 成就：三条线 + 牌型收集
+    expect(stats.achievements.series.length).toBe(3);
+    expect(stats.achievements.handTypes.length).toBe(10);
+    const hands = stats.achievements.series.find((x) => x.key === 'hands');
+    expect(hands.level).toBe(1);
+    expect(stats.categories && typeof stats.categories === 'object').toBe(true);
   });
 
   it('GET /auth/admin/stats：管理员能看到所有人；普通账号 403', async () => {
