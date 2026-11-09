@@ -33,6 +33,7 @@ export function toPublicUser(row) {
   return {
     id: row.id,
     nickname: row.nickname,
+    avatarId: row.avatar_id ?? 'lion',
     role: row.role,
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at ?? null,
@@ -89,6 +90,11 @@ export function findById(id) {
  */
 export function touchLogin(userId, at = Date.now()) {
   getDb().prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(at, userId);
+}
+
+export function updateAvatar(userId, avatarId) {
+  getDb().prepare('UPDATE users SET avatar_id = ? WHERE id = ?').run(avatarId, userId);
+  return findById(userId);
 }
 
 /**

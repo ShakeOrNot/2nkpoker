@@ -334,5 +334,6 @@ export class ControlsView {
     setDisabled(this.allInBtn, !active);
     setDisabled(this.amountInput, !active || !canBet);
     setDisabled(this.slider, !active || !canBet);
+    this.renderCountdown();
   }
 }

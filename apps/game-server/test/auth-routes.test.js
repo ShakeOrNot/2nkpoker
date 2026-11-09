@@ -48,6 +48,25 @@ function patch(app, url, payload, token) {
 
 const PASSWORD = 'poker-2026';
 
+describe('头像资料', () => {
+  it('鉴权、白名单、持久化与玩家隔离', async () => {
+    const app = await makeApp();
+    try {
+      const a = (await post(app, '/auth/register', { nickname: '头像甲', password: PASSWORD })).json();
+      const b = (await post(app, '/auth/register', { nickname: '头像乙', password: PASSWORD })).json();
+      expect((await patch(app, '/auth/me/avatar', { avatarId: 'fox' })).statusCode).toBe(401);
+      expect((await patch(app, '/auth/me/avatar', { avatarId: '../bad' }, a.accessToken)).statusCode).toBe(400);
+      const saved = await patch(app, '/auth/me/avatar', { avatarId: 'fox' }, a.accessToken);
+      expect(saved.statusCode).toBe(200);
+      expect(saved.json().user.avatarId).toBe('fox');
+      expect((await get(app, '/auth/me', a.accessToken)).json().user.avatarId).toBe('fox');
+      expect((await get(app, '/auth/me', b.accessToken)).json().user.avatarId).toBe('lion');
+      const relogin = (await post(app, '/auth/login', { nickname: '头像甲', password: PASSWORD })).json();
+      expect(relogin.user.avatarId).toBe('fox');
+    } finally { await app.close(); }
+  });
+});
+
 describe('注册', () => {
   it('注册成功直接返回会话；昵称就是登录名', async () => {
     const app = await makeApp();

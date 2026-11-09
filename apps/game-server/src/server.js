@@ -9,6 +9,7 @@ import { registerGameNamespace } from './ws/game.namespace.js';
 import { registerDevRoutes } from './dev/token.route.js';
 import { registerTablesRoutes } from './routes/tables.route.js';
 import { registerAuthRoutes } from './routes/auth.route.js';
+import { registerStickerRoutes } from './routes/stickers.route.js';
 import { registerAdminTableRoutes } from './routes/admin.tables.route.js';
 import { initDb } from './users/db.js';
 import { cleanupExpiredTokens } from './auth/session.js';
@@ -26,6 +27,7 @@ app.get('/health', async () => ({ ok: true, service: 'game-server' }));
 app.get('/ready', async () => ({ ok: true }));
 
 registerAuthRoutes(app);
+registerStickerRoutes(app);
 registerAdminTableRoutes(app);
 registerDevRoutes(app);
 registerTablesRoutes(app);

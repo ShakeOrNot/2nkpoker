@@ -20,9 +20,14 @@ import {
   shareUrl,
   isValidRoomId,
 } from '../core/logic.js';
-import { boardEl, cardEl, cardRow } from './cards.js';
+import { cardEl, cardRow, dealtCardEl } from './cards.js';
 import { ControlsView } from './controls.js';
 import { streetText } from './waiting.js';
+import { PayoutEffects, PAYOUT_REVEAL_MS } from './payout-effects.js';
+import { TableMotion, BoardView, deckVisualState } from './table-motion.js';
+import { BetEffects } from './bet-effects.js';
+import { avatarEl, paintAvatar } from './avatar.js';
+import { playerAvatar } from '../core/avatars.js';
 
 export class TableView extends View {
   /**
@@ -35,7 +40,37 @@ export class TableView extends View {
     this.seatNodes = new Map();
     this.logOpen = false;
     this.resultDismissedFor = '';
+    this.resultShownFor = '';
+    this.payoutEffects = new PayoutEffects(this.root);
+    this.motion = new TableMotion();
+    this.betEffects = new BetEffects(this.root);
+    this.wagerNodes = new Map();
     this.build();
+  }
+
+  dismissResult() {
+    clearTimeout(this.resultTimer);
+    clearTimeout(this.resultRevealTimer);
+    this.resultRevealTimer = null;
+    this.payoutEffects.clear();
+    this.resultTimer = null;
+    this.resultDismissedFor = this.resultShownFor;
+    this.resultOverlay.classList.remove('visible');
+    if (document.activeElement === this.resultCloseBtn) this.resultPreviousFocus?.focus?.();
+    this.resultOverlay.replaceChildren();
+  }
+
+  unmount() {
+    super.unmount();
+    this.dismissResult();
+    this.motion.disconnect();
+    this.betEffects.disconnect();
+  }
+
+  mount(container) {
+    super.mount(container);
+    this.motion.connect();
+    this.betEffects.connect(this.stageEl);
   }
 
   build() {
@@ -102,11 +137,29 @@ export class TableView extends View {
     potRow.appendChild(this.potEl);
     this.streetEl = tag('span', 'street-tag', '');
     potRow.appendChild(this.streetEl);
-    center.appendChild(potRow);
+    const dealerRow = node('table-dealer-row');
+    this.deckEl = node('table-deck');
+    this.deckEl.setAttribute('role', 'img');
+    this.deckEl.setAttribute('aria-label', '发牌牌堆');
+    for (let i = 0; i < 8; i++) {
+      const edge = node('deck-layer');
+      edge.style.setProperty('--deck-level', String(i));
+      this.deckEl.appendChild(edge);
+    }
+    this.deckTopEl = cardEl('', { hidden: true, size: 'sm' });
+    this.deckTopEl.style.setProperty('--deck-level', '8');
+    this.deckEl.appendChild(this.deckTopEl);
+    dealerRow.appendChild(this.deckEl);
+    dealerRow.appendChild(potRow);
+    center.appendChild(dealerRow);
 
     this.boardWrap = node('board-wrap');
+    this.boardView = new BoardView(this.motion);
+    this.boardWrap.appendChild(this.boardView.root);
     center.appendChild(this.boardWrap);
     oval.appendChild(center);
+    this.wagerSpots = node('wager-spots');
+    oval.appendChild(this.wagerSpots);
 
     /* 座位层：横屏铺在椭圆上（--seat-x/y 定位），竖屏是桌下的列表 */
     this.seatsOval = node('seats seats-oval');
@@ -258,13 +311,25 @@ export class TableView extends View {
    */
   render(state) {
     const snap = state.room.snapshot;
-    const hand = snap?.hand ?? null;
+    const liveHand = snap?.hand ?? null;
+    const last = state.room.lastResult;
+    // 服务端结算后马上发 hand=null；短暂保留本手桌面供派彩演出，下一手永远优先。
+    const hand = liveHand ?? (last?.result && Date.now() - last.at < RESULT_HOLD_MS
+      ? { ...last, settled: true, street: 'SETTLED', pot: (last.result.pots ?? []).reduce((n, p) => n + p.amount, 0) }
+      : null);
     const seats = snap?.seats ?? [];
     const maxSeats = snap?.maxSeats ?? 6;
     const mySeat = this.store.mySeat();
     const me = seats.find((s) => s.seat === mySeat);
     const myHandSeat = hand?.seats?.find((s) => s.seat === mySeat) ?? null;
     const ctx = this.store.actionContext();
+    const handKey = `${state.room.tableId}:${hand?.handId ?? ''}`;
+    if (this.handMotionKey !== handKey) this.motion.clear();
+    this.handMotionKey = handKey;
+    const deck = deckVisualState(hand);
+    this.deckEl.style.setProperty('--deck-thickness', `${deck.thickness}px`);
+    this.pendingDeal = [];
+    this.allowDeal = Boolean(hand && !hand.settled && hand.street === 'PREFLOP');
 
     setText(this.roomIdEl, `房号 ${state.room.tableId || '----'}`);
     setText(this.connEl, state.connection === 'online' ? '已连接' : state.connection === 'connecting' ? '连接中…' : '已断开');
@@ -273,13 +338,6 @@ export class TableView extends View {
     /* 底池与阶段 */
     setText(this.potEl, hand ? chips(hand.pot ?? 0) : '0');
     setText(this.streetEl, hand ? streetText(hand.street) : '等待开局');
-
-    /* 公共牌 */
-    const boardKey = (hand?.board ?? []).join(',');
-    if (this.boardKey !== boardKey) {
-      this.boardKey = boardKey;
-      this.boardWrap.replaceChildren(boardEl(hand?.board ?? [], { size: 'lg' }));
-    }
 
     /* 座位：横屏环绕椭圆，竖屏桌下列表（两套容器，只渲染可见那套） */
     const order = this.seatOrder(maxSeats, mySeat);
@@ -296,7 +354,11 @@ export class TableView extends View {
       : order;
 
     // 按顺序写 DOM（保证 MVP 在最后 → 视觉上在最下方）
-    const frag = document.createDocumentFragment();
+    const seatsKey = `${portrait}:${visibleOrder.join(',')}`;
+    const reorder = this.seatsKey !== seatsKey;
+    const frag = reorder ? document.createDocumentFragment() : null;
+    if (reorder) { this.motion.clear(); this.betEffects.reset(); }
+    const betTargets = new Map();
     visibleOrder.forEach((seat, index) => {
       const el = this.seatNode(seat);
       const pos = this.ovalPosition(index, visibleOrder.length);
@@ -305,20 +367,39 @@ export class TableView extends View {
       el.style.setProperty('--seat-rot', `${(pos.angle * 180) / Math.PI + 90}deg`);
       el.style.setProperty('--seat-index', String(index));
       this.paintSeat(el, {
+        avatar: playerAvatar(state, seats.find(s => s.seat === seat)),
         seat,
         seatInfo: seats.find((s) => s.seat === seat),
         handSeat: hand?.seats?.find((s) => s.seat === seat),
         isTurn: hand?.currentTurnSeat === seat && !hand?.settled,
         isMe: seat === mySeat,
         isButton: hand?.buttonSeat === seat || (!hand && snap?.buttonSeat === seat),
-        isWinner: Boolean(hand?.result && (hand.result.payouts?.[seat] ?? 0) > 0),
+        isWinner: (delta.get(seat) ?? 0) > 0,
         position: hand ? positionOf(hand, seat) : tablePositionOf(snap, seat),
         delta: delta.get(seat) ?? 0,
         settled: Boolean(hand?.settled),
       });
-      frag.appendChild(el);
+      let wager = this.wagerNodes.get(seat);
+      if (!wager) {
+        wager = node('wager-marker');
+        wager.setAttribute('role', 'group');
+        this.wagerNodes.set(seat, wager);
+        this.wagerSpots.appendChild(wager);
+      }
+      const amount = hand?.seats?.find(s => s.seat === seat)?.betThisStreet ?? 0;
+      wager.style.left = `${50 + (pos.x - 50) * 0.75}%`;
+      wager.style.top = `${50 + (pos.y - 50) * 0.75}%`;
+      wager.classList.toggle('visible', amount > 0 && !hand?.settled);
+      wager.setAttribute('aria-label', `${seats.find(s => s.seat === seat)?.nickname ?? '玩家'} 本街下注 ${amount}`);
+      setText(wager, chips(amount));
+      betTargets.set(seat, portrait ? el.querySelector('.seat-bet') : wager);
+      if (frag) frag.appendChild(el);
     });
-    seatsWrap.replaceChildren(frag);
+    if (frag) seatsWrap.replaceChildren(frag);
+    this.seatsKey = seatsKey;
+    for (const [seat, wager] of this.wagerNodes) {
+      if (!visibleOrder.includes(seat)) wager.classList.remove('visible');
+    }
 
     /* 底部：旁观条 / 我的牌 */
     const seated = Boolean(me);
@@ -327,12 +408,16 @@ export class TableView extends View {
 
     /* 我的手牌 */
     const holeCards = myHandSeat?.holeCards ?? (state.lastHoleCards ?? []);
-    const holeKey = holeCards.join(',');
+    const holeKey = `${handKey}:${holeCards.join(',')}`;
     if (this.holeKey !== holeKey) {
       this.holeKey = holeKey;
       this.myHoleEl.replaceChildren();
       if (holeCards.length) {
-        for (const c of holeCards) this.myHoleEl.appendChild(cardEl(c, { size: 'lg' }));
+        for (const c of holeCards) {
+          const el = dealtCardEl(c, { size: 'lg' });
+          this.myHoleEl.appendChild(el);
+          if (this.allowDeal) this.pendingDeal.push(el);
+        }
       }
     }
 
@@ -358,6 +443,25 @@ export class TableView extends View {
     /* 日志 */
     this.renderLog(state);
 
+    // 布局更新完成后再测量牌堆和目标牌位，旋屏也能保持正确出牌路径。
+    this.boardView.update(handKey, hand?.board ?? [], Boolean(hand?.settled), this.deckTopEl);
+    this.pendingDeal.forEach((el, i) => el.classList.contains('board-card')
+      ? this.motion.reveal(el, this.deckTopEl, i, 65)
+      : this.motion.deal(el, this.deckTopEl, i));
+    const turnKey = hand && !hand.settled ? `${handKey}:${hand.currentTurnSeat}` : '';
+    if (turnKey !== this.turnMotionKey) {
+      this.turnMotionKey = turnKey;
+      const target = this.seatNodes.get(hand?.currentTurnSeat);
+      this.motion.play(target, [
+        { boxShadow: '0 0 0 0 rgba(246,196,83,.9)' },
+        { boxShadow: '0 0 0 10px rgba(246,196,83,0)' },
+      ], { duration: 650 });
+    }
+
+    if (state.connection === 'online') {
+      this.betEffects.update(state.room.tableId, liveHand, this.seatNodes, betTargets, this.potEl);
+    } else this.betEffects.reset();
+
     /* 结算浮层 */
     this.renderResult(state, hand);
   }
@@ -381,6 +485,8 @@ export class TableView extends View {
     if (el) return el;
     el = node('seat');
     el.appendChild(node('seat-top'));
+    el.appendChild(avatarEl('lion', 'seat-avatar'));
+    el.appendChild(node('seat-turn-marker', '行动中'));
     el.appendChild(node('seat-name'));
     el.appendChild(node('seat-chips'));
     el.appendChild(node('seat-bet'));
@@ -421,10 +527,14 @@ export class TableView extends View {
   paintSeat(el, info) {
     const { seatInfo, handSeat, isTurn, isMe, isButton, isWinner, position, delta, settled } = info;
     const taken = Boolean(seatInfo?.userId);
+    const avatar = el.querySelector('.seat-avatar');
+    paintAvatar(avatar, info.avatar);
+    avatar.classList.toggle('hidden', !taken);
 
     el.classList.toggle('seat-empty', !taken);
     el.classList.toggle('seat-me', Boolean(isMe));
     el.classList.toggle('seat-turn', Boolean(isTurn));
+    el.querySelector('.seat-turn-marker').classList.toggle('visible', Boolean(isTurn));
     el.classList.toggle('seat-folded', Boolean(handSeat?.folded));
     el.classList.toggle('seat-allin', Boolean(handSeat?.allIn));
     el.classList.toggle('seat-winner', Boolean(isWinner && settled));
@@ -448,17 +558,19 @@ export class TableView extends View {
     const wasFolded = Boolean(handSeat?.folded);
     // 未亮牌但已入局 → 显示牌背
     const showBacks = Boolean(handSeat) && !wasFolded && cards.length === 0 && !settled;
-    const cardsKey = `${cards.join(',')}|${showBacks ? 'b' : ''}|${wasFolded ? 'f' : ''}`;
+    const cardsKey = `${this.handMotionKey}|${cards.join(',')}|${showBacks ? 'b' : ''}|${wasFolded ? 'f' : ''}`;
     if (cardsEl.datasetKey !== cardsKey) {
       cardsEl.datasetKey = cardsKey;
       cardsEl.replaceChildren();
       if (cards.length) {
-        for (const c of cards) cardsEl.appendChild(cardEl(c, { size: 'sm', highlight: Boolean(isWinner && settled) }));
+        for (const c of cards) cardsEl.appendChild(dealtCardEl(c, { size: 'sm', highlight: Boolean(isWinner && settled) }));
       } else if (showBacks) {
         cardsEl.appendChild(cardEl('', { hidden: true, size: 'sm' }));
         cardsEl.appendChild(cardEl('', { hidden: true, size: 'sm' }));
       }
+      if (this.allowDeal) this.pendingDeal.push(...cardsEl.children);
     }
+    for (const el of cardsEl.children) el.classList.toggle('card-hi', Boolean(isWinner && settled));
 
     const tags = el.querySelector('.seat-tags');
     tags.replaceChildren();
@@ -541,13 +653,26 @@ export class TableView extends View {
     const last = state.room.lastResult;
     const hasResult = Boolean(last?.result) || Boolean(hand?.settled && hand?.result);
     if (!hasResult) {
-      this.resultOverlay.classList.remove('visible');
-      this.resultDismissedFor = '';
+      this.dismissResult();
       return;
     }
-    const handId = last?.handId ?? hand?.handId ?? '';
+    const currentResult = hand?.settled && hand.result ? hand : last;
+    const handId = currentResult?.handId ?? '';
+    const resultKey = `${state.room.tableId}:${handId}`;
+    // 下一手一到就让出操作区；重绘与重复事件不重建浮层、不延长计时。
+    if (hand && !hand.settled && hand.handId !== handId) {
+      this.dismissResult();
+      this.resultDismissedFor = resultKey;
+      return;
+    }
+    const age = last?.handId === handId && last.at ? Math.max(0, Date.now() - last.at) : 0;
+    if (age >= RESULT_HOLD_MS) {
+      this.dismissResult();
+      this.resultDismissedFor = resultKey;
+      return;
+    }
     // 同一手牌只展示一次；想调试可临时打开 views.table._dbg
-    if (this.resultDismissedFor === handId) {
+    if (this.resultDismissedFor === resultKey || this.resultShownFor === resultKey) {
       if (this._dbg) console.log('[table] 结算浮层已收起过，跳过', handId);
       return;
     }
@@ -602,8 +727,10 @@ export class TableView extends View {
     }
     if (this._dbg) console.log('[table] 显示结算浮层，行数 =', summary.rows.length);
 
-    const mySeat = this.store.mySeat();
-    const mine = summary.rows.find((r) => r.seat === mySeat);
+    const mine = summary.rows.find((r) => state.session?.userId
+      ? r.userId === state.session.userId
+      : r.seat === this.store.mySeat());
+    const mySeat = mine?.seat;
     const headline = mine
       ? mine.net > 0
         ? `你赢了 ${chips(mine.net)}`
@@ -612,8 +739,64 @@ export class TableView extends View {
           : '本手打平'
       : '本手结算';
 
-    const card = node('result-card');
-    card.appendChild(tag('h2', `result-headline ${mine && mine.net > 0 ? 'win' : mine && mine.net < 0 ? 'lose' : ''}`, headline));
+    this.dismissResult();
+    this.resultShownFor = resultKey;
+    const outcome = !mine ? 'spectator' : mine.net > 0 ? 'win' : mine.net < 0 ? 'lose' : 'tie';
+    const card = node(`result-card result-${outcome}`);
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    card.setAttribute('aria-label', headline);
+    const emblem = node('result-emblem', outcome === 'win' ? '♛' : outcome === 'lose' ? '♠' : '◇');
+    if (outcome === 'tie') {
+      emblem.textContent = '';
+      emblem.appendChild(tag('span', 'result-duel-card', '♠'));
+      emblem.appendChild(tag('span', 'result-duel-card', '♦'));
+    }
+    emblem.setAttribute('aria-hidden', 'true');
+    card.appendChild(emblem);
+    card.appendChild(tag('div', 'result-eyebrow', outcome === 'win' ? 'WINNER · 赢家时刻' : outcome === 'lose' ? '本手惜败' : outcome === 'tie' ? 'WELL PLAYED · 好局相逢' : '本手结算'));
+    if (outcome === 'tie' || outcome === 'lose') {
+      if (outcome === 'tie') {
+        card.appendChild(tag('div', 'result-morale-title', '棋逢对手'));
+        card.appendChild(tag('div', 'result-morale-copy', '这一手不分高下，精彩留在牌桌上。'));
+      }
+      const glints = node('result-morale-glints');
+      glints.setAttribute('aria-hidden', 'true');
+      for (let i = 0; i < 8; i++) {
+        const glint = tag('span', '', '✧');
+        glint.style.setProperty('--glint-index', String(i));
+        glints.appendChild(glint);
+      }
+      card.appendChild(glints);
+    }
+    if (outcome === 'win') {
+      const sparks = node('result-sparks');
+      sparks.setAttribute('aria-hidden', 'true');
+      for (let i = 0; i < 24; i++) {
+        const angle = (i / 24) * Math.PI * 2;
+        const radius = 110 + (i % 4) * 32;
+        const spark = tag('span', i % 3 === 0 ? 'result-spark result-flying-chip' : 'result-spark', i % 3 === 0 ? '♠' : '✦');
+        spark.style.setProperty('--spark-dx', `${Math.cos(angle) * radius}px`);
+        spark.style.setProperty('--spark-dy', `${Math.sin(angle) * radius}px`);
+        spark.style.setProperty('--spark-rotation', `${i * 43}deg`);
+        spark.style.setProperty('--spark-delay', `${160 + (i % 6) * 75}ms`);
+        sparks.appendChild(spark);
+      }
+      card.appendChild(sparks);
+    }
+    const title = tag('h2', `result-headline ${mine && mine.net > 0 ? 'win' : mine && mine.net < 0 ? 'lose' : ''}`, headline);
+    if (outcome === 'win') {
+      title.textContent = '';
+      title.setAttribute('aria-label', headline);
+      const winLabel = tag('span', 'result-win-label', '你赢了！');
+      const winAmount = tag('span', 'result-win-amount', `+${chips(mine.net)}`);
+      winAmount.setAttribute('aria-hidden', 'true');
+      title.appendChild(winLabel);
+      title.appendChild(winAmount);
+      title.appendChild(tag('span', 'result-win-caption', '本手净赢筹码'));
+    }
+    card.appendChild(title);
+    if (outcome === 'lose') card.appendChild(tag('div', 'result-morale-copy', '稳住，下一手见。'));
 
     const pots = pseudoHand?.result?.pots ?? [];
     if (pots.length) {
@@ -652,24 +835,37 @@ export class TableView extends View {
     }
     card.appendChild(list);
 
+    this.resultCloseBtn = button({ label: outcome === 'tie' ? '好局继续 · 回到牌桌' : outcome === 'lose' ? '回到牌桌' : '继续牌局', className: 'btn-ghost btn-block result-close', onClick: () => this.dismissResult() });
+    card.appendChild(this.resultCloseBtn);
+    card.appendChild(tag('div', 'result-note', '自动收起 · 下一手开始立即继续'));
+
     if (summary.deadMoney > 0) {
       card.appendChild(tag('div', 'result-note', `有 ${chips(summary.deadMoney)} 无人认领（孤池），按规则留在桌上`));
     }
 
     this.resultOverlay.replaceChildren(card);
-    this.resultOverlay.classList.add('visible');
+    const reveal = () => {
+      this.resultRevealTimer = null;
+      this.payoutEffects.clear();
+      this.resultOverlay.classList.add('visible');
+      this.resultPreviousFocus = document.activeElement;
+      this.resultCloseBtn.focus?.({ preventScroll: true });
+    };
+    // 先派彩、再出现结算卡；不推迟服务端状态，也不延长总展示时间。
+    if (age < 500 && this.payoutEffects.play(pseudoHand, this.potEl, this.seatNodes, this.stageEl)) {
+      this.resultRevealTimer = setTimeout(reveal, PAYOUT_REVEAL_MS);
+    } else reveal();
 
     // 自动收起
-    if (this.resultTimer) clearTimeout(this.resultTimer);
-    this.resultTimer = setTimeout(() => {
-      this.resultDismissedFor = handId;
-      this.resultOverlay.classList.remove('visible');
-    }, RESULT_HOLD_MS);
+    this.resultTimer = setTimeout(() => this.dismissResult(), RESULT_HOLD_MS - age);
+    this.resultOverlay.onkeydown = (ev) => {
+      if (ev.key === 'Escape') this.dismissResult();
+      if (ev.key === 'Tab') { ev.preventDefault(); this.resultCloseBtn.focus?.(); }
+    };
 
     // 点一下也可以立即收起
-    this.resultOverlay.onclick = () => {
-      this.resultDismissedFor = handId;
-      this.resultOverlay.classList.remove('visible');
+    this.resultOverlay.onclick = (ev) => {
+      if (ev.target === this.resultOverlay) this.dismissResult();
     };
   }
 }

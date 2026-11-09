@@ -186,6 +186,7 @@ export function cleanupAfterHand(t) {
         seat: free,
         userId: q.userId,
         nickname: q.nickname,
+        avatarId: q.avatarId ?? 'lion',
         chips: q.buyIn,
         buyInTotal: q.buyIn,
         ready: false,

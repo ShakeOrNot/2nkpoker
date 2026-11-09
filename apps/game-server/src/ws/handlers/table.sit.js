@@ -8,6 +8,7 @@ import {
 } from '../../state/tableManager.js';
 import { toTableSnapshot } from '../../state/tableSnapshot.js';
 import { requestLeave } from '../../state/handOrchestrator.js';
+import { findById } from '../../users/userStore.js';
 
 /** 1 个买入 = 100 个 BB；最多 50 个买入 */
 const BUY_IN_BB = 100;
@@ -115,6 +116,7 @@ export function registerTableSit(nsp, socket) {
           t.sitQueue.push({
             userId,
             nickname: nickname ?? `user_${userId.slice(0, 6)}`,
+            avatarId: findById(userId)?.avatar_id ?? 'lion',
             buyIn,
             preferredSeat: preferredSeat ?? -1,
             requestedAt: Date.now(),
@@ -143,6 +145,7 @@ export function registerTableSit(nsp, socket) {
         seat: free,
         userId,
         nickname: nickname ?? `user_${userId.slice(0, 6)}`,
+        avatarId: findById(userId)?.avatar_id ?? 'lion',
         chips: buyIn,
         buyInTotal: buyIn,
         ready: false,

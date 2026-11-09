@@ -425,3 +425,25 @@ type HandResult = {
 | 没有 Redis 持久化 | 服务重启后牌局/筹码全部丢失（纯内存） | `state/tableManager.js` |
 | 没有限流 | `RATE_LIMITED` 只是预留码 | — |
 | 前端复制了一份引擎逻辑 | `apps/web/public/js/core/logic.js` 与 `poker-engine` 各自演进，存在漂移风险 | `core/logic.js` |
+
+### 头像协议
+
+PATCH /auth/me/avatar 需要 Bearer access token，请求 { "avatarId": "fox" }。仅接受 lion、fox、cat、owl、panda、robot；非法请求返回 400。成功返回 { ok: true, user }，其中 user.avatarId 随登录、续期与 /auth/me 返回。旧账号通过 SQLite 增量迁移获得默认 lion。座位公开快照增加 avatarId，保存头像时向已入座的房间广播更新，不修改手牌版本和筹码。
+
+### 房间聊天协议
+
+- chat:send 请求 { tableId, text, clientId }，text 去除首尾空白后为 1–280 字（JS UTF-16 长度），clientId 为 8–80 位字母数字、下划线或中划线。消息只接收这些字段；昵称、用户和头像由服务端生成。
+- chat:message 广播 { id, clientId, tableId, userId, nickname, avatarId, text, at }；发送 ack 返回 { ok: true, message }。客户端按服务端 id 去重；未确认重试复用 clientId，服务端对最近80条中的重试返回原消息，不重复广播。
+- chat:history 请求 { tableId }，返回 { ok: true, messages }。只有当前 Socket.IO 房间成员、有效且未禁用的账号可读写；密码版本变化后拒绝旧连接。每账号发送间隔至少800ms。
+- 每房间内存保留最近80条，重连/刷新可重新拉取，服务器重启或房间销毁后清除。离开房间后失去读写权限；消息不跨房广播。
+- 离线练习仅显示本机发送的消息，并在界面明确标记；远端适配协议暂不支持聊天。
+
+### 表情包协议
+
+- 内置表情ID：nice、bravo、allin、again、steady、gg。
+- chat:send 除文字格式外，支持 { tableId, stickerId, clientId }，两种消息内容互斥；沿用账号限频和重试去重。自定义表情必须属于发送账号。
+- chat:message / chat:history 的表情消息包含 text: "" 与 sticker: { id, name?, url }；客户端只根据白名单内置ID或UUID构建资源地址，不采用任意外链。
+- GET /auth/me/stickers：Bearer登录账号自己的表情列表。POST /auth/me/stickers：{ name, dataUrl }，名称1–24字，PNG编码后≤256KiB，每账号最多12张，按账号和图片摘要去重。图片保存到SQLite，刷新和服务器重启后保留。
+- 客户端接受PNG/JPEG/WebP原图≤5MiB、≤16777216像素，最长边缩到256，再转静态PNG上传；服务端独立检查PNG签名、块CRC、最大512×512、有界解压及扫描行结构，只保存必要块。拒绝SVG/HTML、GIF及任意外链。
+- GET /auth/stickers/assets/:uuid 提供已校验PNG，资源ID不可预测，消息接收者可直接加载；响应带image/png与nosniff。资源加载失败时显示文字回退。
+- 离线模式按账号保存在本机，并明确标记不能跨客户端发送；在线模式通过真实上传接口分享。

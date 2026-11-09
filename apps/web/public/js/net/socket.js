@@ -9,6 +9,7 @@ import { gameNamespaceUrl } from '../core/config.js';
 
 /** socket.io 客户端来源，按顺序尝试 */
 const CLIENT_SOURCES = [
+  '/socket.io/socket.io.js',
   'https://cdn.socket.io/4.7.5/socket.io.min.js',
   'https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js',
   'https://unpkg.com/socket.io-client@4.7.5/dist/socket.io.min.js',
@@ -68,6 +69,7 @@ export function loadSocketIoClient() {
 
 /** 服务端只发这一种错误事件；ack 里的 code 走各请求自己的返回 */
 const EVENT_MAP = {
+  'chat:message': 'onChatMessage',
   'table:snapshot': 'onSnapshot',
   'hand:start': 'onHandStart',
   'game:action_request': 'onActionRequest',

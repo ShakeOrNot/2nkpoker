@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>牌桌动画 · 本地预览</title>
+<link rel="stylesheet" href="/css/app.css">
+<style>
+body { background: radial-gradient(ellipse at center, #17402f, #0d1013 75%); }
+.preview-tools { position: relative; z-index: 100; padding: 12px; background: #171b21; }
+.preview-tools h1 { font-size: 16px; margin: 0 0 8px; }
+.preview-tools .row { flex-wrap: wrap; }
+.preview-tools p { color: #b4c8c0; font-size: 12px; margin: 8px 0 0; }
+#preview-status { min-height: 18px; line-height: 18px; color: #efd08b; }
+.view-table > :where(:not(.result-overlay, .payout-effects, .bet-effects)) { display: none !important; }
+.preview-table .view-table { position: fixed; inset: var(--preview-header-height, 165px) 0 0; height: auto; }
+.preview-table .view-table > .table-main { display: flex !important; }
+.preview-deal .view-table > .my-zone { display: block !important; }
+.result-overlay { padding-top: calc(var(--preview-header-height, 150px) + 18px); }
+.result-card { max-height: calc(100dvh - var(--preview-header-height, 150px) - 40px); }
+</style>
+<header class="preview-tools">
+  <h1>牌桌动画 · 本地预览</h1>
+  <div class="row" id="scenarios"><label class="hint"><input id="hold" type="checkbox" checked> 保持画面</label><label class="hint"><input id="table-mode" type="checkbox"> 牌桌派彩</label></div>
+  <p>本地固定样例。可逐步发牌、翻牌、转牌、河牌；“重复快照”检查旧牌不重播。“保持画面”仅用于结算预览。</p>
+  <p id="preview-status" role="status">准备就绪。</p>
+</header>
+<main id="preview"></main>
+<script type="module">
+import { TableView } from '/js/views/table.js';
+import { collectionGuard } from '/preview-flow.mjs';
+const status = message => { document.querySelector('#preview-status').textContent = message; };
+const seats = [
+  { seat: 0, userId: 'me', nickname: '你', totalCommitted: 200, folded: false, chips: 1800, connected: true },
+  { seat: 1, userId: 'friend', nickname: '牌友', totalCommitted: 200, folded: false, chips: 1800, connected: true },
+];
+const state = { session: { userId: 'me' }, layout: 'auto', connection: 'online', room: { tableId: 'preview', snapshot: { seats, maxSeats: 6 }, log: [] } };
+const view = new TableView({ state, mySeat: () => state.session.userId === 'me' ? 0 : null, actionContext: () => ({ legal: [], quicks: [], isMyTurn: false }) });
+view.mount(document.querySelector('#preview'));
+let sequence = 0;
+const tableMode = document.querySelector('#table-mode');
+const bettingMode = new URLSearchParams(location.search).has('betting');
+const motionMode = bettingMode || new URLSearchParams(location.search).has('motion');
+if (bettingMode) document.querySelector('.preview-tools p').textContent = '依次点击：下注 40 → 跟注 → 加注 80 → 跟注 → 收筹码。“重复快照”不会重播旧下注。';
+tableMode.checked = motionMode || new URLSearchParams(location.search).has('table');
+document.body.classList.toggle('preview-table', tableMode.checked);
+function show(kind) {
+  document.body.classList.remove('preview-deal');
+  view.dismissResult();
+  state.session = { userId: kind === 'spectator' ? 'observer' : 'me' };
+  const payouts = kind === 'win' ? { 0: 400 } : kind === 'tie' || kind === 'split' ? { 0: 200, 1: 200 } : { 1: 400 };
+  const revealed = kind === 'tie' || kind === 'split' ? { 0: ['Ac', 'Qh'], 1: ['Ah', 'Qs'] }
+    : kind === 'win' ? { 0: ['Ah', 'Ad'], 1: ['Kh', 'Qh'] }
+    : { 0: ['Kh', 'Qh'], 1: ['Ah', 'Ad'] };
+  state.room.snapshot.hand = null;
+  state.room.lastResult = {
+    handId: `sample-${++sequence}`, at: Date.now(), seats,
+    board: ['As', 'Kd', '7c', '2h', '9s'],
+    result: { pots: [{ amount: 400 }], payouts, revealed },
+  };
+  if (tableMode.checked) view.render(state);
+  else view.renderResult(state, null);
+  // 仅预览页允许停留欣赏；生产组件的自动收起时间不变。
+  if (document.querySelector('#hold').checked) {
+    clearTimeout(view.resultTimer);
+    view.resultTimer = null;
+  }
+}
+
+function startHand() {
+  status('新一手已开始。');
+  tableMode.checked = true;
+  document.body.classList.add('preview-table', 'preview-deal');
+  state.session = { userId: 'me' };
+  state.room.lastResult = null;
+  state.room.snapshot.hand = {
+    handId: `deal-${++sequence}`, settled: false, street: 'PREFLOP', board: [],
+    seats: seats.map(s => ({ ...s, totalCommitted: 0, betThisStreet: 0, holeCards: s.seat === 0 ? ['Ah', 'Kd'] : [] })),
+    currentTurnSeat: 0, pot: 0, bigBlind: 20, smallBlind: 10, buttonSeat: 1, version: 1,
+  };
+  view.render(state);
+}
+
+for (const [kind, label] of [['deal','发手牌'], ['bet','下注 40'], ['call','跟注'], ['raise','加注 80'], ['collect','收筹码'], ['flop','翻牌'], ['turn','转牌'], ['river','河牌'], ['action','轮转行动'], ['repeat','重复快照']]) {
+  const btn = document.createElement('button'); btn.className = 'btn btn-ghost btn-sm'; btn.textContent = label;
+  btn.onclick = () => {
+    if (kind === 'deal') { startHand(); return; }
+    if (kind === 'repeat') { view.render(state); return; }
+    const collection = kind === 'collect' ? collectionGuard(state.room.snapshot.hand) : null;
+    if (collection) {
+      status(collection.message);
+      if (!collection.ok) return;
+    }
+    if (!state.room.snapshot.hand || state.room.snapshot.hand.settled) startHand();
+    const hand = state.room.snapshot.hand;
+    if (['bet', 'call', 'raise'].includes(kind)) {
+      const actor = kind === 'call' ? 1 : 0;
+      const target = Math.max(...hand.seats.map(s => s.betThisStreet ?? 0), 0);
+      const row = hand.seats.find(s => s.seat === actor);
+      const desired = kind === 'call' ? target : kind === 'raise' ? target + 80 : (row.betThisStreet ?? 0) + 40;
+      const amount = Math.min(row.chips, Math.max(0, desired - row.betThisStreet));
+      row.betThisStreet += amount; row.totalCommitted += amount; row.chips -= amount;
+      hand.pot += amount; hand.version++;
+      hand.currentTurnSeat = actor === 0 ? 1 : 0;
+    }
+    if (kind === 'action') hand.currentTurnSeat = hand.currentTurnSeat === 0 ? 1 : 0;
+    if (['flop', 'turn', 'river', 'collect'].includes(kind)) {
+      const next = kind === 'collect' ? collection.next : kind;
+      if (!next) return;
+      const count = { flop: 3, turn: 4, river: 5 }[next];
+      hand.board = ['As', 'Kc', '7d', '2h', '9s'].slice(0, count);
+      hand.street = { flop: 'FLOP', turn: 'TURN', river: 'RIVER' }[next];
+      for (const row of hand.seats) row.betThisStreet = 0;
+      hand.version++;
+    }
+    view.render(state);
+  };
+  document.querySelector('#scenarios').appendChild(btn);
+}
+document.querySelector('#hold').onchange = () => view.dismissResult();
+tableMode.onchange = () => { document.body.classList.toggle('preview-table', tableMode.checked); show('win'); };
+for (const [kind, label] of [['win','播放胜利'], ['lose','播放失败'], ['tie','播放平局'], ['spectator','旁观结算'], ['split','多人派彩'], ['next','下一手']]) {
+  const btn = document.createElement('button'); btn.className = 'btn btn-ghost btn-sm'; btn.textContent = label;
+  btn.onclick = () => {
+    if (kind === 'next') {
+      startHand();
+    } else show(kind);
+  };
+  document.querySelector('#scenarios').appendChild(btn);
+}
+new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--preview-header-height', `${document.querySelector('.preview-tools').getBoundingClientRect().height}px`);
+}).observe(document.querySelector('.preview-tools'));
+if (motionMode) startHand(); else show('win');
+</script>
+</html>

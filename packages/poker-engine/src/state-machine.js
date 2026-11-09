@@ -461,8 +461,9 @@ function settle(state, forcedWinnerSeat) {
 
 function handValueToStrength(hv) {
   let n = hv.category;
-  for (let i = 0; i < hv.tiebreakers.length; i++) {
-    n = n * 100 + hv.tiebreakers[i];
+  // 每种牌型都占用相同的五个比较位，确保牌型始终优先于踢脚牌。
+  for (let i = 0; i < 5; i++) {
+    n = n * 100 + (hv.tiebreakers[i] ?? 0);
   }
   return n;
 }

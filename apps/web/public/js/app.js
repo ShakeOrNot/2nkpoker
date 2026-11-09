@@ -9,8 +9,11 @@ import { LobbyView } from './views/lobby.js';
 import { WaitingView } from './views/waiting.js';
 import { TableView } from './views/table.js';
 import { AdminView } from './views/admin.js';
+import { ChatView } from './views/chat.js';
 
 const store = new Store();
+const chat = new ChatView(store);
+document.body.appendChild(chat.root);
 
 const container = document.getElementById('views');
 
@@ -78,6 +81,7 @@ function showPhase(phase) {
 
 store.subscribe((state) => {
   showPhase(state.phase);
+  chat.render(state);
   for (const view of Object.values(views)) {
     if (view.root.classList.contains('view-active')) view.render(state);
   }
