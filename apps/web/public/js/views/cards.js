@@ -26,6 +26,18 @@ export function cardEl(card, options = {}) {
   return el;
 }
 
+/** 发牌用的双面牌，静止时为正面，翻转期间露出牌背。 */
+export function dealtCardEl(card, options = {}) {
+  const wrap = document.createElement('span');
+  wrap.className = 'board-card';
+  wrap.appendChild(cardEl(card, options));
+  const back = cardEl('', { hidden: true, size: options.size ?? 'md' });
+  back.classList.add('board-card-back');
+  back.setAttribute('aria-hidden', 'true');
+  wrap.appendChild(back);
+  return wrap;
+}
+
 /**
  * 一组牌
  * @param {string[]} cards

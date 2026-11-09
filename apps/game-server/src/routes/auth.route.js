@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import { updateAvatar } from '../users/userStore.js';
+import { findUserTable } from '../state/tableManager.js';
+import { getGameNamespace } from '../ws/game.namespace.js';
+import { broadcastTable } from '../ws/handlers/table.sit.js';
 import {
   findByNickname,
   findById,
@@ -102,6 +106,22 @@ function toAdminUser(row) {
  * @param {import('fastify').FastifyInstance} app
  */
 export function registerAuthRoutes(app) {
+  app.patch('/auth/me/avatar', async (req, reply) => {
+    const user = requireUser(req, reply);
+    if (!user) return reply;
+    const parsed = z.object({ avatarId: z.enum(['lion', 'fox', 'cat', 'owl', 'panda', 'robot']) }).strict().safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ ok: false, code: 'INVALID_PAYLOAD', message: '请选择内置头像' });
+    const updated = updateAvatar(user.id, parsed.data.avatarId);
+    const table = findUserTable(user.id);
+    if (table) {
+      const seat = table.seats.get(table.userToSeat.get(user.id));
+      if (seat) seat.avatarId = parsed.data.avatarId;
+      table.version++;
+      const nsp = getGameNamespace();
+      if (nsp) broadcastTable(nsp, table);
+    }
+    return { ok: true, user: toPublicUser(updated) };
+  });
   /* ---------------- 注册 ---------------- */
   app.post('/auth/register', async (req, reply) => {
     const parsed = CredentialsSchema.safeParse(req.body ?? {});

@@ -201,6 +201,20 @@ export async function logout(refreshToken) {
   return { ok: true };
 }
 
+export async function updateAvatar(token, avatarId) {
+  const res = await sendJson('PATCH', '/auth/me/avatar', { avatarId }, { token });
+  return res.ok ? { ok: true, user: res.data.user } : res;
+}
+
+export async function listStickers(token) {
+  const res = await getJson('/auth/me/stickers', { token });
+  return res.ok ? { ok: true, stickers: res.data.stickers } : res;
+}
+export async function uploadSticker(token, image) {
+  const res = await postJson('/auth/me/stickers', image, { token });
+  return res.ok ? { ok: true, sticker: res.data.sticker } : res;
+}
+
 /**
  * 改口令：成功后返回一对新令牌（服务端会把旧令牌全部作废）
  * @param {string} token access token

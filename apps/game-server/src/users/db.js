@@ -42,6 +42,8 @@ export function initDb(path = process.env.AUTH_DB_PATH || defaultPath) {
  * @param {DatabaseSync} database
  */
 function migrate(database) {
+  const userCols = database.prepare('PRAGMA table_info(users)').all().map(c => c.name);
+  if (!userCols.includes('avatar_id')) database.exec("ALTER TABLE users ADD COLUMN avatar_id TEXT NOT NULL DEFAULT 'lion'");
   const cols = database.prepare('PRAGMA table_info(player_hands)').all().map((c) => c.name);
   const add = (name, ddl) => {
     if (!cols.includes(name)) database.exec(`ALTER TABLE player_hands ADD COLUMN ${name} ${ddl}`);

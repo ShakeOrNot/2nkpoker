@@ -3,6 +3,7 @@ import { registerTableJoin } from './handlers/table.join.js';
 import { registerTableSit } from './handlers/table.sit.js';
 import { registerTableReady } from './handlers/table.ready.js';
 import { registerGameAction } from './handlers/game.action.js';
+import { registerChat } from './handlers/chat.js';
 import {
   handleDisconnect,
   cancelPendingDisconnect,
@@ -29,6 +30,7 @@ export function registerGameNamespace(io) {
       const payload = verifyJwt(token);
       socket.data.userId = payload.sub;
       socket.data.nickname = payload.nickname;
+      socket.data.tokenVersion = Number(payload.tv ?? 0);
       cancelPendingDisconnect(payload.sub);
       next();
     } catch {
@@ -43,6 +45,7 @@ export function registerGameNamespace(io) {
     registerTableSit(nsp, socket);
     registerTableReady(nsp, socket);
     registerGameAction(nsp, socket);
+    registerChat(nsp, socket);
 
     socket.on('disconnect', () => {
       console.log('disconnected:', socket.data.userId);

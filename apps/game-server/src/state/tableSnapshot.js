@@ -17,6 +17,7 @@ export function toTableSnapshot(t, forSeat = null) {
       seat: s.seat,
       userId: s.userId,
       nickname: s.nickname,
+      avatarId: s.avatarId ?? 'lion',
       chips: s.chips,
       ready: s.ready,
       connected: s.connected,

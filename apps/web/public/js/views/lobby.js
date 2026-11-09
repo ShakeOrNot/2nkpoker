@@ -15,6 +15,8 @@ import { normalizeRoomInput, isValidRoomId, shareUrl } from '../core/logic.js';
 import { loadRecords, mergeRooms, forgetRecord } from '../net/roomStore.js';
 import * as api from '../net/api.js';
 import { notifyFailure } from '../net/api.js';
+import { avatarEl, paintAvatar } from './avatar.js';
+import { AvatarPicker } from './avatar-picker.js';
 
 export class LobbyView extends View {
   /**
@@ -47,13 +49,21 @@ export class LobbyView extends View {
     this.setMode('list');
   }
 
+  unmount() {
+    super.unmount();
+    this.avatarPicker.root.classList.remove('visible');
+  }
+
   build() {
     /* 顶栏 */
     const header = node('app-header');
     const who = node('who');
-    this.avatar = node('avatar', '♠');
+    this.avatar = avatarEl('lion');
+    const avatarButton = button({ label: '更换头像', className: 'avatar-edit', onClick: () => this.avatarPicker.open() });
+    avatarButton.replaceChildren(this.avatar);
+    avatarButton.setAttribute('aria-label', '更换头像');
     this.userLabel = node('who-name');
-    who.appendChild(this.avatar);
+    who.appendChild(avatarButton);
     who.appendChild(this.userLabel);
     header.appendChild(who);
 
@@ -86,6 +96,8 @@ export class LobbyView extends View {
     actions.appendChild(this.logoutBtn);
     header.appendChild(actions);
     this.root.appendChild(header);
+    this.avatarPicker = new AvatarPicker(this.store);
+    this.root.appendChild(this.avatarPicker.root);
 
     /* 改口令弹窗（离线练习时隐藏） */
     this.pwOverlay = node('modal-overlay');
@@ -178,7 +190,7 @@ export class LobbyView extends View {
 
     /* 「用房号加入」卡片：默认折叠（hidden），点「加入牌局」页签才展开。
        放在面板最前面，所以展开时正好落在页签正下方 */
-    this.manualCard = node('card card-flat hidden');
+    this.manualCard = node('panel-card card-flat hidden');
     this.manualCard.appendChild(tag('h3', 'card-title', '用房号加入'));
     const manualRow = node('row');
     this.roomInput = tag('input', 'input');
@@ -338,7 +350,7 @@ export class LobbyView extends View {
   buildCreate() {
     this.panelCreate = node('panel panel-create');
     /* 「创建牌局」卡片：和「用房号加入」一样默认折叠，点「创建牌局」页签才展开 */
-    this.createCard = node('card hidden');
+    this.createCard = node('panel-card hidden');
     const card = this.createCard;
     card.appendChild(tag('h3', 'card-title', '创建牌局'));
 
@@ -651,6 +663,7 @@ export class LobbyView extends View {
    * @param {any} state
    */
   render(state) {
+    paintAvatar(this.avatar, state.session?.user?.avatarId);
     setText(this.userLabel, state.session?.nickname ? `${state.session.nickname}` : '未登录');
     setDisabled(this.createBtn, Boolean(state.busy));
     setText(this.logoutBtn, state.offline ? '退出离线' : '退出');

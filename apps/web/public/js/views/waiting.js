@@ -7,6 +7,8 @@ import { View, button, node, setDisabled, setText, tag } from './base.js';
 import { toast, copyText } from '../core/dom.js';
 import { chips, stakeText } from '../core/format.js';
 import { BUY_IN_BB, MAX_BUY_IN_UNITS } from '../core/constants.js';
+import { avatarEl } from './avatar.js';
+import { playerAvatar } from '../core/avatars.js';
 import { handRunning, shareUrl, isValidRoomId, tablePositions } from '../core/logic.js';
 
 export class WaitingView extends View {
@@ -99,7 +101,7 @@ export class WaitingView extends View {
     const body = node('waiting-body');
 
     /* 房号卡片 */
-    const roomCard = node('card card-hero');
+    const roomCard = node('panel-card card-hero');
     roomCard.appendChild(tag('div', 'card-label', '房号'));
     const idRow = node('row row-between');
     this.roomIdEl = tag('div', 'room-id-big', '------');
@@ -125,7 +127,7 @@ export class WaitingView extends View {
     body.appendChild(this.notice);
 
     /* 座位列表 */
-    const seatCard = node('card');
+    const seatCard = node('panel-card');
     const seatHead = node('row row-between');
     seatHead.appendChild(tag('h3', 'card-title', '座位'));
     this.seatCountEl = node('hint');
@@ -136,7 +138,7 @@ export class WaitingView extends View {
     body.appendChild(seatCard);
 
     /* 带入与操作 */
-    const actionCard = node('card');
+    const actionCard = node('panel-card');
     this.buyRow = node('field');
     this.buyRow.appendChild(
       tag('label', 'field-label', `买入（1 个 = 100BB，最多 ${MAX_BUY_IN_UNITS} 个）`),
@@ -175,7 +177,7 @@ export class WaitingView extends View {
     body.appendChild(actionCard);
 
     /* 进行中的牌局预览（坐下不了的时候至少能看） */
-    this.liveCard = node('card card-live');
+    this.liveCard = node('panel-card card-live');
     this.liveCard.appendChild(tag('h3', 'card-title', '当前牌局'));
     this.liveInfo = node('live-info');
     this.liveCard.appendChild(this.liveInfo);
@@ -354,6 +356,7 @@ export class WaitingView extends View {
       // 座位名用位次（BTN/SB/BB/UTG/HJ/CO）；空座位没有位次，退回座位号
       const pos = positions.get(i) ?? '';
       cell.appendChild(tag('div', 'seat-no', seat.userId ? pos || `座位 ${i + 1}` : `座位 ${i + 1}`));
+      if (seat.userId) cell.appendChild(avatarEl(playerAvatar(state, seat)));
       cell.appendChild(tag('div', 'seat-name', seat.userId ? seat.nickname || '玩家' : '空位'));
       cell.appendChild(tag('div', 'seat-chips', seat.userId ? `${chips(seat.chips)} 筹码` : '—'));
       if (seat.userId) {

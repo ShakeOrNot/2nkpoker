@@ -5,6 +5,8 @@
  */
 
 import { errorText } from './core/constants.js';
+import { avatarId } from './core/avatars.js';
+import { RoomChat } from './core/room-chat.js';
 import {
   readStore,
   writeStore,
@@ -111,6 +113,7 @@ export class Store {
 
     /** @type {Set<(s: any) => void>} */
     this.listeners = new Set();
+    this.chat = new RoomChat(this);
     this.socket = null;
     /** @type {any} */
     this.pendingRequest = null;
@@ -184,6 +187,7 @@ export class Store {
    * @param {Partial<any>} patch
    */
   patchRoom(patch) {
+    if (patch.tableId !== undefined && patch.tableId !== this.state.room.tableId) this.chat.reset(patch.tableId);
     this.state.room = { ...this.state.room, ...patch };
     this.onChange();
   }
@@ -380,6 +384,7 @@ export class Store {
    * @param {{ token: string, refreshToken?: string, userId: string, nickname: string, expiresAt: number }} session
    */
   installSession(session) {
+    if (this.state.offline) session.user = { ...session.user, avatarId: avatarId(readStore(`2nk.avatar.${session.userId}`)) };
     writeStore(STORAGE_KEYS.session, session);
     this.patch({ session, phase: 'lobby', busy: false, authExpired: false });
     this.log(`已登录：${session.nickname}`);
@@ -395,6 +400,22 @@ export class Store {
     this.patch({ session, authExpired: false });
     this.socket?.updateAuth?.(session.token);
     this.scheduleTokenRefresh();
+  }
+
+  async updateAvatar(value) {
+    const session = this.state.session;
+    if (!session) return { ok: false, message: '请先登录' };
+    const id = avatarId(value);
+    if (this.state.offline) {
+      writeStore(`2nk.avatar.${session.userId}`, id);
+      this.applySession({ ...session, user: { ...session.user, avatarId: id } });
+      return { ok: true };
+    }
+    const res = await api.updateAvatar(session.token, id);
+    if (res.ok && this.state.session?.userId === session.userId) {
+      this.applySession({ ...this.state.session, user: res.user });
+    }
+    return res;
   }
 
   /** 到期前 60 秒自动续期（只有带 refreshToken 的会话需要） */
@@ -758,6 +779,7 @@ export class Store {
    */
   buildHandlers() {
     return {
+      onChatMessage: message => this.chat.receive(message),
       onConnect: () => {
         this.patch({ connection: 'online' });
         this.log('已连接牌局服务');
@@ -821,6 +843,7 @@ export class Store {
       if (res.restored) this.log(`已恢复座位 ${res.seat}`);
       const state = await this.socket.request('table:request_state', { tableId });
       if (state?.ok && state.snapshot) this.applySnapshot(state.snapshot);
+      await this.chat.load();
     } catch {
       /* 重连期间的失败不打扰用户：下一次 onConnect 还会再试 */
     } finally {
@@ -839,6 +862,12 @@ export class Store {
     if (!snapshot) return;
     const prevSeat = this.mySeat();
     const hand = snapshot.hand;
+    const request = this.state.room.actionRequest;
+    if (!hand || hand.settled || hand.pendingStreetAdvance || (request &&
+        (request.handId !== hand.handId || hand.currentTurnSeat !== prevSeat ||
+         (Number.isFinite(request.version) && Number.isFinite(hand.version) && request.version < hand.version)))) {
+      this.clearActionRequest();
+    }
     const me = hand?.seats?.find((s) => s.seat === prevSeat);
 
     if (me?.holeCards?.length) this.state.lastHoleCards = [...me.holeCards];
@@ -891,11 +920,19 @@ export class Store {
   /**
    * @param {any} payload
    */
+  clearActionRequest() {
+    clearTimeout(this.deadlineTimer); this.deadlineTimer = null;
+    this.pendingRequest = null; this.state.room.actionRequest = null;
+  }
+
     applyActionRequest(payload) {
     /* 契约是"只发给当前行动者"；为稳妥再校验一次座位，
        别人的请求绝不能当成我的（否则操作会被服务端拒绝） */
     const mySeat = this.mySeat();
     if (payload?.seat != null && mySeat != null && payload.seat !== mySeat) return;
+    const hand = this.state.room.snapshot?.hand;
+    if (!hand || hand.settled || hand.pendingStreetAdvance || payload?.handId !== hand.handId ||
+        hand.currentTurnSeat !== mySeat || (Number.isFinite(payload?.version) && payload.version < hand.version)) return;
 
     // 如果当前不在牌桌界面（在大厅或等待室），直接立刻代打
     if (this.state.phase !== 'table') {
@@ -912,6 +949,7 @@ export class Store {
     
     // 倒计时结束：玩家在牌桌发呆，前端主动代打，不等待后端超时
     this.deadlineTimer = setTimeout(() => {
+      if (this.state.room.actionRequest !== payload) return;
       this.patchRoom({ actionRequest: null });
       this.log('操作超时，自动为你过牌/弃牌', 'warn');
       this.autoAction(payload);
@@ -924,6 +962,8 @@ export class Store {
   async autoAction(req) {
     const hand = this.state.room.snapshot?.hand;
     if (!hand || hand.handId !== req.handId) return;
+    if (hand.settled || hand.pendingStreetAdvance || hand.currentTurnSeat !== req.seat ||
+        (Number.isFinite(req.version) && req.version !== hand.version)) return;
     const me = hand.seats.find(s => s.seat === req.seat);
     if (!me) return;
     
@@ -994,6 +1034,7 @@ export class Store {
 
     const tableId = makeRoomId();
     this.patch({ busy: true });
+    if (this.chat.tableId !== tableId) this.chat.reset(tableId);
     this.state.room.tableId = tableId;
     upsertRecord({ roomId: tableId, nickname: this.state.session?.nickname ?? '', isHost: true, ...cfg });
 
@@ -1033,6 +1074,7 @@ export class Store {
     }
 
     this.patch({ busy: true });
+    if (this.chat.tableId !== tableId) this.chat.reset(tableId);
     this.state.room.tableId = tableId;
     const conn = await this.ensureSocket();
     if (!conn.ok) {
@@ -1061,6 +1103,7 @@ export class Store {
     });
 
     if (this.state.phase === 'lobby') this.patch({ phase: 'waiting' });
+    void this.chat.load();
     this.log(res.restored ? `已回到牌局 ${tableId}（断线恢复座位）` : `已进入牌局 ${tableId}`);
 
     // 分享链接带过来的、或者上次就在座位的，自动补一个坐下请求
@@ -1313,7 +1356,8 @@ export class Store {
       this.reportError(`操作失败：${message}`, { log: false });
       return { ok: false, code: res?.code, message };
     }
-    this.patchRoom({ actionRequest: null });
+    if (this.state.room.actionRequest === req) this.clearActionRequest();
+    this.onChange();
     return { ok: true };
   }
 
@@ -1328,9 +1372,12 @@ export class Store {
   actionContext() {
     const hand = this.state.room.snapshot?.hand;
     const seat = this.mySeat();
-    const request = this.state.room.actionRequest;
+    const candidate = this.state.room.actionRequest;
+    const request = candidate && hand && !hand.settled && !hand.pendingStreetAdvance &&
+      candidate.handId === hand.handId && hand.currentTurnSeat === seat &&
+      (!Number.isFinite(candidate.version) || candidate.version >= hand.version) ? candidate : null;
     const legal = request?.legalActions?.length ? request.legalActions : deriveLegalActions(hand, seat);
-    const myTurn = isMyTurn(hand, seat) || Boolean(request);
+    const myTurn = !hand?.pendingStreetAdvance && isMyTurn(hand, seat);
     return {
       legal: myTurn ? legal : [],
       quicks: myTurn && hand ? quickBets(hand, seat) : [],
