@@ -2575,3 +2575,120 @@ body[data-layout='portrait'] .seats-portrait { display: flex !important; }
 @keyframes sticker-arrive { from { opacity:0; transform:translateY(5px) scale(.94); } to { opacity:1; transform:none; } }
 @media (prefers-reduced-motion:reduce) { .chat-message-content > .sticker-image { animation:none; } }
 @media (max-width:600px) { .sticker-gallery { max-height:210px; } }
+
+/* ============================================================
+   14. 玩家面板（大厅「我的战绩」/ 牌桌点玩家名共用）
+   ============================================================ */
+.player-panel {
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+.pp-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.pp-section {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.pp-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  list-style: none;
+}
+
+.pp-summary::-webkit-details-marker {
+  display: none;
+}
+
+.pp-summary::after {
+  content: '▾';
+  color: var(--muted);
+}
+
+.pp-section[open] > .pp-summary::after {
+  content: '▴';
+}
+
+.pp-body {
+  padding: 0 10px 10px;
+}
+
+/* 竖屏也把座位围在椭圆桌边（不再用桌下纵向列表） */
+body[data-layout='portrait'] .seats-oval { display: flex !important; }
+body[data-layout='portrait'] .seats-portrait { display: none !important; }
+
+@media (orientation: portrait) {
+  .seats-oval { display: flex !important; }
+  .seats-portrait { display: none !important; }
+}
+
+.table-stage.is-portrait .seats-oval { inset: -9% -7%; }
+.table-stage.is-portrait .seats-oval .seat { width: 92px; }
+.table-stage.is-portrait .seats-oval .seat-name { max-width: 84px; font-size: 11px; }
+.table-stage.is-portrait .seats-oval .seat-chips { font-size: 10px; }
+.table-stage.is-portrait .seats-oval .seat .seat-avatar { width: 28px; height: 28px; left: -12px; }
+.table-stage.is-portrait .wager-spots { display: block; }
+
+/* 跑马协商面板 */
+.runout-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 26%;
+  transform: translateX(-50%);
+  width: min(92vw, 420px);
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(16, 20, 26, 0.97);
+  border: 1px solid #b89a51;
+  box-shadow: var(--shadow);
+  z-index: 80;
+  display: none;
+}
+
+.runout-panel.visible { display: block; }
+.runout-title { font-weight: 700; font-size: 14px; color: #ffd76a; margin-bottom: 4px; }
+.runout-hint { margin: 0 0 8px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.runout-controls { display: flex; gap: 8px; align-items: center; }
+.runout-input { width: 92px; }
+.runout-proposals { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.runout-proposal { font-size: 12px; color: var(--text); }
+
+/* 跑多次时结算浮层里的多个 board */
+.result-runs { margin-top: 6px; font-size: 12px; color: #ffd76a; }
+.result-boards { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.result-board-row { display: flex; align-items: center; gap: 4px; }
+.result-board-no { width: 16px; font-size: 11px; color: var(--muted); }
+
+/* 跑马多 board 逐个亮牌 */
+.runout-boards-view {
+  position: fixed;
+  left: 50%;
+  top: 16%;
+  transform: translateX(-50%);
+  width: min(94vw, 520px);
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(10, 14, 18, 0.94);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  z-index: 79;
+  display: none;
+}
+
+.runout-boards-view.visible { display: block; }
+.runout-boards-title { font-size: 12px; color: #ffd76a; margin-bottom: 6px; }
+.runout-board-line { display: flex; align-items: center; gap: 3px; padding: 3px 0; }
+.runout-board-no { width: 16px; font-size: 11px; color: var(--muted); }

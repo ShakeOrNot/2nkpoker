@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { closeTable, getTable, listTableDetails } from '../state/tableManager.js';
-import { clearActionTimer, clearNextHandTimer, clearStreetTimer } from '../state/actionTimer.js';
+import { clearActionTimer, clearNextHandTimer, clearRunoutTimer, clearStreetTimer } from '../state/actionTimer.js';
 import { getGameNamespace } from '../ws/game.namespace.js';
 import { broadcastTable } from '../ws/handlers/table.sit.js';
 import { clientIp, requireAdmin } from '../auth/adminGuard.js';
@@ -56,6 +56,7 @@ export function registerAdminTableRoutes(app) {
     clearActionTimer(tableId);
     clearNextHandTimer(tableId);
     clearStreetTimer(tableId);
+    clearRunoutTimer(tableId);
     closeTable(tableId);
 
     writeAudit({

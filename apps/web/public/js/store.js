@@ -96,6 +96,12 @@ export class Store {
         actionRequest: null,
         /** @type {{ handId: string, result: any, board: string[], at: number }|null} */
         lastResult: null,
+        /** 跑马协商：{ handId, maxRuns, deadline, proposals } */
+        /** @type {any} */
+        runout: null,
+        /** 跑马多 board 逐个亮牌：{ handId, boards: string[][] } */
+        /** @type {any} */
+        runoutBoards: null,
         /** @type {Array<{ at: number, text: string, kind?: string }>} */
         log: [],
         /** @type {string|null} */
@@ -628,6 +634,16 @@ export class Store {
   }
 
   /**
+   * 任意玩家的战绩（点牌桌玩家名打开面板）
+   * @param {string} userId
+   */
+  async playerStats(userId) {
+    const token = this.state.session?.token;
+    if (!token) return { ok: false, code: 'AUTH_FAILED', message: '请先登录' };
+    return api.playerStats(token, userId);
+  }
+
+  /**
    * 管理员解散了当前牌局：清掉房间状态回大厅
    * @param {any} payload
    */
@@ -808,7 +824,33 @@ export class Store {
         const verb = actionText(payload.action);
         this.log(`座位 ${payload.seat} ${verb}${payload.timeout ? '（超时自动）' : ''}`);
       },
-      onResult: (payload) => this.applyResult(payload),
+      onResult: (payload) => {
+        this.patchRoom({ runoutBoards: null, runout: null });
+        this.applyResult(payload);
+      },
+      onRunoutOffer: (payload) => {
+        this.patchRoom({ runout: { ...payload, proposals: [] } });
+        this.log(`跑马：最多可跑 ${payload.maxRuns} 次，等待所有人选择`, 'info');
+      },
+      onRunoutState: (payload) => {
+        const current = this.state.room.runout;
+        this.patchRoom({ runout: { ...(current ?? {}), ...payload } });
+      },
+      onRunoutAgreed: (payload) => {
+        this.patchRoom({
+          runout: null,
+          runoutBoards: payload.runs > 1 ? { handId: payload.handId, runs: payload.runs, boards: [] } : null,
+        });
+        this.log(`跑马次数已确定：${payload.runs} 次${payload.timeout ? '（超时默认 1 次）' : ''}`, 'info');
+      },
+      onRunoutBoard: (payload) => {
+        const current = this.state.room.runoutBoards;
+        const boards = current?.handId === payload.handId ? [...current.boards] : [];
+        boards[payload.index] = payload.board;
+        this.patchRoom({
+          runoutBoards: { handId: payload.handId, runs: payload.runs, boards },
+        });
+      },
       onTableClosed: (payload) => this.handleTableClosed(payload),
       onTableKicked: (payload) => this.handleTableKicked(payload),
       onServerError: (payload) => {
@@ -1323,8 +1365,24 @@ export class Store {
    * @param {{ type: string, amount?: number }|string} action
    * @returns {Promise<{ ok: boolean, code?: string, message?: string }>}
    */
-  async act(action) {
-    const req = this.pendingRequest;
+  /**
+   * 跑马协商：提议跑几次（所有 all-in 玩家选同一个数才执行）
+   * @param {number} runs
+   */
+  async proposeRunout(runs) {
+    const runout = this.state.room.runout;
+    const tableId = this.state.room.tableId;
+    if (!runout || !tableId) return { ok: false, code: 'NO_RUNOUT', message: '当前没有跑马协商' };
+    const conn = await this.ensureSocket();
+    if (!conn.ok) return conn;
+    return this.socket.request('game:runout_propose', {
+      tableId,
+      handId: runout.handId,
+      runs: Number(runs),
+    });
+  }
+
+  async act(action) {    const req = this.pendingRequest;
     const hand = this.state.room.snapshot?.hand;
     if (!hand) return { ok: false, code: 'HAND_NOT_ACTIVE', message: errorText('HAND_NOT_ACTIVE') };
     const payload = typeof action === 'string' ? { type: action } : action;

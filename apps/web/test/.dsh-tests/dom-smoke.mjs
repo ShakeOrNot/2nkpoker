@@ -487,16 +487,57 @@ if (!failed) {
   }
 }
 
-/* ---- 我的战绩：每个玩家只看自己的（弹窗能开能关；离线隐藏入口） ---- */
+/* ---- 玩家面板：大厅「我的战绩」与牌桌点玩家名共用；模块可折叠 ---- */
 try {
   const appStore = globalThis.window.__poker.store;
   const views = globalThis.window.__poker.views;
+  const panel = views.lobby.playerPanel;
+  if (!panel) throw new Error('没有玩家面板');
 
-  appStore.state.offline = false;
-  views.lobby.openStats();
-  if (!views.lobby.statsOverlay.classList.contains('visible')) throw new Error('战绩弹窗没打开');
-  views.lobby.closeStats();
-  if (views.lobby.statsOverlay.classList.contains('visible')) throw new Error('战绩弹窗没关上');
+  const stats = {
+    hands: 20,
+    vpipHands: 10,
+    wins: 8,
+    showdowns: 6,
+    showdownWins: 3,
+    net: 120,
+    profit: 300,
+    vpipRate: 0.5,
+    winRate: 0.4,
+    showdownRate: 0.3,
+    showdownWinRate: 0.5,
+    lastPlayedAt: Date.now(),
+    achievements: {
+      series: [{ name: '牌海行者', level: 2, levelName: 'II', value: 10, next: 100, unit: '手' }],
+      handTypes: [{ name: '高牌过客', level: 1, levelName: 'I', value: 1, next: 10, unit: '次', desc: '高牌' }],
+    },
+    luck: {
+      lucky: [{ kind: 'runout', title: '跑马收益', handClass: 'AA', holeCards: 'AsAh', actual: 500, expected: 100, deviation: 400 }],
+      unlucky: [],
+    },
+  };
+  panel.render({ nickname: '阿豪' }, stats);
+
+  const details = panel.sections.children;
+  if (details.length !== 3) throw new Error(`面板应有 3 个折叠模块，实际 ${details.length}`);
+  if (!details[0].open) throw new Error('战绩模块默认应展开');
+  if (details[1].open || details[2].open) throw new Error('成就/Lucky 默认应折叠');
+
+  const grid = details[0].children[1].children[0];
+  if (grid.children.length !== 4) throw new Error('战绩概览不是 4 项');
+
+  const achList = details[1].children[1].children[0];
+  if (achList.children.length !== 3) throw new Error('成就模块内容不完整');
+  const level = achList.children[0].children[1];
+  if (!String(level?.textContent).includes('II')) throw new Error('成就等级没渲染');
+
+  const luckList = details[2].children[1].children[0];
+  if (luckList.children.length !== 2) throw new Error('Lucky/Unlucky 区块不完整');
+
+  panel.overlay.classList.add('visible');
+  if (!panel.overlay.classList.contains('visible')) throw new Error('面板没打开');
+  panel.close();
+  if (panel.overlay.classList.contains('visible')) throw new Error('面板没关上');
 
   appStore.state.offline = true;
   views.lobby.render(appStore.state);
@@ -505,52 +546,89 @@ try {
   views.lobby.render(appStore.state);
   if (views.lobby.myStatsBtn.classList.contains('hidden')) throw new Error('在线模式「我的战绩」被藏起来了');
 
-  /* 成就列表：3 条累计 + 小标题 + 10 种牌型 = 14 行 */
-  views.lobby.renderAchievements({
-    series: [
-      { name: '牌海行者', level: 2, levelName: 'II', value: 10, next: 100, unit: '手', desc: '打的手牌数' },
-      { name: '常胜将军', level: 0, levelName: '', value: 0, next: 1, unit: '胜' },
-      { name: '筹码巨鳄', level: 1, levelName: 'I', value: 1000, next: 5000, unit: '筹码' },
-    ],
-    handTypes: Array.from({ length: 10 }, (_, i) => ({
-      name: `牌型${i}`,
-      level: i === 0 ? 1 : 0,
-      levelName: i === 0 ? 'I' : '',
-      value: i === 0 ? 1 : 0,
-      next: 10,
-      unit: '次',
-    })),
-  });
-  if (views.lobby.achBody.children.length !== 14) {
-    throw new Error(`成就列表行数不对：${views.lobby.achBody.children.length}`);
-  }
-  const firstLevel = views.lobby.achBody.children[0].children[1];
-  if (!firstLevel || !String(firstLevel.textContent).includes('II')) {
-    throw new Error(`成就等级没渲染：${firstLevel?.textContent}`);
-  }
-
-  /* Lucky / Unlucky：两个 block，每个 3 行 */
-  views.lobby.renderLuck({
-    lucky: [
-      { kind: 'runout', title: '跑马收益', handClass: 'AA', holeCards: 'AsAh', actual: 500, expected: 100, deviation: 400 },
-      { kind: 'winrate', title: '起手牌胜率', handClass: 'AA', n: 10, actual: 1, expected: 0.852, z: 1.28 },
-      { kind: 'strength', title: '牌力质量', handClass: 'AA', n: 10, actual: 3.7, expected: 1.48, z: 14.6 },
-    ],
-    unlucky: [
-      { kind: 'runout', title: '跑马收益', handClass: 'KK', holeCards: 'KsKh', actual: -500, expected: 300, deviation: -800 },
-      { kind: 'winrate', title: '起手牌胜率', handClass: '72o', n: 10, actual: 0, expected: 0.346, z: -2.3 },
-      { kind: 'strength', title: '牌力质量', handClass: '72o', n: 10, actual: 1, expected: 1.25, z: -2.3 },
-    ],
-  });
-  if (views.lobby.luckBody.children.length !== 2) throw new Error('Lucky/Unlucky 两个区块没渲染');
-  if (views.lobby.luckBody.children[0].children.length !== 4) {
-    throw new Error(`Lucky 区块行数不对：${views.lobby.luckBody.children[0].children.length}`);
-  }
-
-  console.log('  ok    我的战绩弹窗能开能关，离线隐藏入口，成就/Lucky 能渲染');
+  console.log('  ok    玩家面板 3 个折叠模块、默认展开战绩，离线隐藏入口');
 } catch (err) {
   failed++;
-  console.log(`  FAIL  我的战绩: ${err?.message ?? err}`);
+  console.log(`  FAIL  玩家面板: ${err?.message ?? err}`);
+}
+
+/* ---- 输光后重新入座：必须自动准备，否则永远等不到下一手 ---- */
+try {
+  const store = globalThis.window.__poker.store;
+  const table = globalThis.window.__poker.views.table;
+  const oldSit = store.sit;
+  const oldReady = store.setReady;
+  let readyArg = null;
+  try {
+    store.state.room.snapshot = { bigBlind: 20, seats: [] };
+    store.sit = async () => ({ ok: true, seat: 0 });
+    store.setReady = async (v) => {
+      readyArg = v;
+      return { ok: true };
+    };
+    await table.sitNow();
+    if (readyArg !== true) throw new Error('入座后没有自动准备');
+
+    readyArg = null;
+    store.sit = async () => ({ ok: false, code: 'INVALID_BUY_IN', message: 'x' });
+    await table.sitNow();
+    if (readyArg !== null) throw new Error('入座失败时不应准备');
+  } finally {
+    store.sit = oldSit;
+    store.setReady = oldReady;
+  }
+  console.log('  ok    输光后「入座并等待下一手」会自动准备');
+} catch (err) {
+  failed++;
+  console.log(`  FAIL  重新入座自动准备: ${err?.message ?? err}`);
+}
+
+/* ---- 跑马协商面板：入座的 all-in 玩家看到选项，取消后隐藏 ---- */
+try {
+  const store = globalThis.window.__poker.store;
+  const table = globalThis.window.__poker.views.table;
+  const oldSession = store.state.session;
+  const oldSnap = store.state.room.snapshot;
+  store.state.session = { userId: "u_panel", nickname: "我" };
+  store.state.room.snapshot = { seats: [{ seat: 0, userId: "u_panel", nickname: "我" }], maxSeats: 6 };
+  store.state.room.runout = {
+    handId: "h1",
+    seats: [0],
+    maxRuns: 9,
+    deadline: Date.now() + 15000,
+    proposals: [{ seat: 0, runs: 2 }],
+  };
+  table.renderRunout(store.state);
+  if (!table.runoutPanel.classList.contains("visible")) throw new Error("协商面板没显示");
+  if (table.runoutProposals.children.length !== 1) throw new Error("提议列表不对");
+  if (table.runoutInput.max !== "9") throw new Error("最多次数没写入");
+
+  store.state.room.runout = null;
+  table.renderRunout(store.state);
+  if (table.runoutPanel.classList.contains("visible")) throw new Error("协商结束后面板没隐藏");
+
+  /* 多 board 逐个亮牌 */
+  store.state.room.runoutBoards = {
+    handId: "h1",
+    runs: 2,
+    boards: [
+      ["As", "Ks", "Qs", "2d", "7c"],
+      ["2c", "4c", "6c", "8c", "Tc"],
+    ],
+  };
+  table.renderRunoutBoards(store.state);
+  if (!table.runoutBoardsView.classList.contains("visible")) throw new Error("多 board 面板没显示");
+  if (table.runoutBoardsView.children.length !== 3) throw new Error("多 board 行数不对");
+  store.state.room.runoutBoards = null;
+  table.renderRunoutBoards(store.state);
+  if (table.runoutBoardsView.classList.contains("visible")) throw new Error("多 board 面板没隐藏");
+
+  store.state.session = oldSession;
+  store.state.room.snapshot = oldSnap;
+  console.log("  ok    跑马协商 + 多 board 亮牌面板能显示/隐藏");
+} catch (err) {
+  failed++;
+  console.log(`  FAIL  跑马协商面板: ${err?.message ?? err}`);
 }
 
 console.log(failed ? `DOM 冒烟：${failed} 个失败` : 'DOM 冒烟：全部通过');

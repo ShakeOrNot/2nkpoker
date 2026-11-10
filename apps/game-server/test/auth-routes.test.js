@@ -528,6 +528,30 @@ describe('战绩接口', () => {
     expect(stats.categories && typeof stats.categories === 'object').toBe(true);
   });
 
+  it('GET /auth/players/:id/stats：登录玩家能看别人面板；未登录 401', async () => {
+    const app = await makeApp();
+    const viewer = (await post(app, '/auth/register', { nickname: 'panel_viewer', password: PASSWORD })).json();
+    const target = (await post(app, '/auth/register', { nickname: 'panel_target', password: PASSWORD })).json();
+    recordHandStats([
+      { handId: 'p1', userId: target.user.id, tableId: 't', at: 1, vpip: 1, showdown: 1, won: 1, showdownWon: 1, net: 30 },
+    ]);
+
+    const res = await get(app, `/auth/players/${target.user.id}/stats`, viewer.accessToken);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    expect(body.user.nickname).toBe('panel_target');
+    expect(body.stats.hands).toBe(1);
+    expect(body.stats.achievements.series.length).toBe(3);
+
+    const anon = await get(app, `/auth/players/${target.user.id}/stats`);
+    expect(anon.statusCode).toBe(401);
+
+    const missing = await get(app, '/auth/players/nobody/stats', viewer.accessToken);
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe('USER_NOT_FOUND');
+  });
+
   it('GET /auth/admin/stats：管理员能看到所有人；普通账号 403', async () => {
     const app = await makeApp();
     const boss = (await post(app, '/auth/register', { nickname: 'stat_boss', password: PASSWORD })).json();

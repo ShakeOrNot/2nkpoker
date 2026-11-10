@@ -433,6 +433,22 @@ export function registerAuthRoutes(app) {
     return { ok: true, stats: statsForUser(user.id) };
   });
 
+  /* ---------------- 任意玩家的战绩（牌桌点头像/昵称看面板） ---------------- */
+  app.get('/auth/players/:id/stats', async (req, reply) => {
+    const viewer = requireUser(req, reply);
+    if (!viewer) return reply;
+    const target = findById(req.params.id);
+    if (!target) {
+      reply.code(404);
+      return { ok: false, code: 'USER_NOT_FOUND', message: '玩家不存在' };
+    }
+    return {
+      ok: true,
+      user: { id: target.id, nickname: target.nickname, role: target.role },
+      stats: statsForUser(target.id),
+    };
+  });
+
   /* ---------------- 管理员：全站战绩 ---------------- */
   app.get('/auth/admin/stats', async (req, reply) => {
     const admin = requireAdmin(req, reply);

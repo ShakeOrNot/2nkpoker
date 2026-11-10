@@ -381,6 +381,16 @@ function advanceStreet(state) {  // 重置本街
     (s) => !s.folded && !s.allIn && s.chips > 0,
   ).length;
   if (canBetCount < 2) {
+    // 跑马：服务端传 deferRunout 时每次只推进一条街，留时间给前端做发牌动画；
+    // 否则保持旧行为，直接把剩余公共牌发完。
+    if (state.deferRunout) {
+      state.pendingStreetAdvance = true;
+      state.currentTurnSeat = null;
+      return {
+        state,
+        events: [{ type: 'street', street: state.street, board: [...state.board] }],
+      };
+    }
     // 直接把剩余公共牌发完
     return advanceStreet(state);
   }

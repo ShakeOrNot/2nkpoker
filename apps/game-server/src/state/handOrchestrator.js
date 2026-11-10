@@ -91,6 +91,9 @@ export function playAction(t, seat, action, expectedVersion, options = {}) {
   t.handState = result.state;
   t.version += 1;
   captureRunout(t);
+  // 本手后续不会再有人下注（跑马）时，让引擎一条街一条街地推进，
+  // 服务端按 STREET_DELAY_MS 广播，前端才有翻牌/转牌/河牌的动画。
+  if (options.deferStreet) t.handState.deferRunout = true;
 
   // 同步筹码回座位
   for (const hs of t.handState.seats) {

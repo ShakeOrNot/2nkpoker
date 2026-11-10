@@ -7,6 +7,7 @@ import {
   broadcastActionRequest,
   broadcastResult,
   clearActionTimer,
+  maybeOfferRunout,
   scheduleStreetAdvance,
 } from '../../state/actionTimer.js';
 
@@ -39,8 +40,8 @@ export function registerGameAction(nsp, socket) {
         // broadcastResult 内部会在 SETTLE_HOLD_MS 后自己开下一手（留时间给结算动画）
         broadcastResult(nsp, t, handId);
       } else if (t.handState.pendingStreetAdvance) {
-        // 本街结束：停 STREET_DELAY_MS 再发下一条街（翻牌/转牌/河牌），给前端动画时间
-        scheduleStreetAdvance(nsp, t);
+        // 跑马且牌没发完：先协商跑几次；否则停 1 秒再发下一条街
+        if (!maybeOfferRunout(nsp, t)) scheduleStreetAdvance(nsp, t);
       } else {
         broadcastActionRequest(nsp, t);
       }

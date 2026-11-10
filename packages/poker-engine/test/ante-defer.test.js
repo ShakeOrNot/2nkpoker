@@ -123,4 +123,30 @@ describe('街道推进延迟（deferStreet）', () => {
     expect(again.state).toBe(s);
     expect(again.events.length).toBe(0);
   });
+
+  it('deferRunout：跑马时一条街一条街发，最后才结算', () => {
+    let s = headsUp();
+    s = applyAction(s, 0, { type: 'all_in' }, { deferStreet: true }).state;
+    s = applyAction(s, 1, { type: 'call' }, { deferStreet: true }).state;
+    expect(s.pendingStreetAdvance).toBe(true);
+    s.deferRunout = true;
+
+    s = advancePendingStreet(s).state;
+    expect(s.street).toBe('FLOP');
+    expect(s.board.length).toBe(3);
+    expect(s.pendingStreetAdvance).toBe(true);
+
+    s = advancePendingStreet(s).state;
+    expect(s.street).toBe('TURN');
+    expect(s.board.length).toBe(4);
+    expect(s.pendingStreetAdvance).toBe(true);
+
+    s = advancePendingStreet(s).state;
+    expect(s.street).toBe('RIVER');
+    expect(s.board.length).toBe(5);
+    expect(s.pendingStreetAdvance).toBe(true);
+
+    s = advancePendingStreet(s).state;
+    expect(s.settled).toBe(true);
+  });
 });

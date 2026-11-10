@@ -9,7 +9,7 @@
 
 import { View, button, labelled, node, setDisabled, setText, tag } from './base.js';
 import { toast, copyText } from '../core/dom.js';
-import { stakeText, ago, percent } from '../core/format.js';
+import { stakeText, ago } from '../core/format.js';
 import { BLIND_LEVELS, MAX_SEATS, BUY_IN_BB } from '../core/constants.js';
 import { normalizeRoomInput, isValidRoomId, shareUrl } from '../core/logic.js';
 import { loadRecords, mergeRooms, forgetRecord } from '../net/roomStore.js';
@@ -17,6 +17,7 @@ import * as api from '../net/api.js';
 import { notifyFailure } from '../net/api.js';
 import { avatarEl, paintAvatar } from './avatar.js';
 import { AvatarPicker } from './avatar-picker.js';
+import { PlayerPanel } from './player-panel.js';
 
 export class LobbyView extends View {
   /**
@@ -141,29 +142,8 @@ export class LobbyView extends View {
     });
     this.root.appendChild(this.pwOverlay);
 
-    /* 我的战绩弹窗：只看自己的历史数据 */
-    this.statsOverlay = node('modal-overlay');
-    const statsCard = node('modal-card');
-    statsCard.appendChild(tag('h3', 'modal-title', '我的战绩'));
-    this.statsHint = tag('p', 'modal-hint', '加载中…');
-    statsCard.appendChild(this.statsHint);
-    this.statsBody = node('stats-grid');
-    statsCard.appendChild(this.statsBody);
-    statsCard.appendChild(tag('h4', 'achievements-title', '成就'));
-    this.achBody = node('achievements');
-    statsCard.appendChild(this.achBody);
-    statsCard.appendChild(tag('h4', 'achievements-title', 'LuckyHands / UnluckyHands'));
-    this.luckBody = node('luck-lists');
-    statsCard.appendChild(this.luckBody);
-    const statsActions = node('modal-actions');
-    statsActions.appendChild(button({ label: '刷新', className: 'btn-ghost', onClick: () => void this.loadStats() }));
-    statsActions.appendChild(button({ label: '关闭', className: 'btn-primary', onClick: () => this.closeStats() }));
-    statsCard.appendChild(statsActions);
-    this.statsOverlay.appendChild(statsCard);
-    this.statsOverlay.addEventListener('click', (ev) => {
-      if (ev.target === this.statsOverlay) this.closeStats();
-    });
-    this.root.appendChild(this.statsOverlay);
+    /* 玩家面板：「我的战绩」和牌桌点玩家名共用同一套折叠面板 */
+    this.playerPanel = new PlayerPanel(this.store);
 
     /* 模式切换 */
     const tabs = node('tabs');
@@ -521,147 +501,21 @@ export class LobbyView extends View {
     toast('口令已修改，其它设备需要重新登录', 'info');
   }
 
-  /* ---------------- 我的战绩 ---------------- */
+  /* ---------------- 我的战绩（玩家面板） ---------------- */
 
   openStats() {
     if (this.store.state.offline) {
       toast('离线练习没有账号战绩', 'info');
       return;
     }
-    this.statsOverlay.classList.add('visible');
-    void this.loadStats();
-  }
-
-  closeStats() {
-    this.statsOverlay.classList.remove('visible');
-  }
-
-  async loadStats() {
-    setText(this.statsHint, '加载中…');
-    this.statsBody.replaceChildren();
-    this.achBody.replaceChildren();
-    const res = await this.store.myStats();
-    if (!res.ok) {
-      setText(this.statsHint, res.message ?? '加载战绩失败');
+    const session = this.store.state.session;
+    if (!session?.userId) {
+      toast('请先登录', 'error');
       return;
     }
-    const stats = res.stats;
-    if (!stats || !stats.hands) {
-      setText(this.statsHint, '还没有打过牌，去牌桌打几手就有了');
-      return;
-    }
-    const net = Number(stats.net ?? 0);
-    const profit = Number(stats.profit ?? 0);
-    const last = stats.lastPlayedAt ? ` · 最近 ${ago(Number(stats.lastPlayedAt))}` : '';
-    setText(
-      this.statsHint,
-      `共 ${stats.hands} 手 · 净 ${net >= 0 ? '+' : ''}${net} · 累计盈利 +${profit}${last}`,
-    );
-
-    const items = [
-      ['入池率', percent(stats.vpipRate, stats.hands), `${stats.vpipHands ?? 0} 手主动入池`],
-      ['胜率', percent(stats.winRate, stats.hands), `${stats.wins ?? 0} 手净赢`],
-      ['摊牌率', percent(stats.showdownRate, stats.hands), `${stats.showdowns ?? 0} 手亮牌`],
-      ['摊牌胜率', percent(stats.showdownWinRate, stats.showdowns), `${stats.showdownWins ?? 0}/${stats.showdowns ?? 0} 亮牌局`],
-    ];
-    for (const [label, value, sub] of items) {
-      const cell = node('stats-item');
-      cell.appendChild(tag('div', 'stats-label', label));
-      cell.appendChild(tag('div', 'stats-value', value));
-      cell.appendChild(tag('div', 'stats-sub', sub));
-      this.statsBody.appendChild(cell);
-    }
-
-    this.renderAchievements(stats.achievements);
-    this.renderLuck(stats.luck);
+    void this.playerPanel.open(session.userId, session.nickname);
   }
 
-  /**
-   * LuckyHands / UnluckyHands：三项指标各一个最大/最小
-   * @param {{ lucky?: any[], unlucky?: any[], runoutCount?: number }} [luck]
-   */
-  renderLuck(luck) {
-    this.luckBody.replaceChildren();
-    if (!luck) return;
-    this.luckBody.appendChild(this.luckBlock('LuckyHands', luck.lucky));
-    this.luckBody.appendChild(this.luckBlock('UnluckyHands', luck.unlucky));
-  }
-
-  /**
-   * @param {string} title
-   * @param {any[]} [items]
-   */
-  luckBlock(title, items) {
-    const wrap = node('luck-block');
-    wrap.appendChild(tag('div', 'luck-title', title));
-    if (!items?.length) {
-      wrap.appendChild(tag('div', 'luck-empty', '样本不足，继续打牌'));
-      return wrap;
-    }
-    for (const item of items) {
-      const row = node('luck-row');
-      row.appendChild(tag('span', 'luck-kind', item.title));
-      const hand =
-        item.kind === 'runout'
-          ? `${item.handClass} ${String(item.holeCards ?? '').replace(/(.{2})/g, '$1 ').trim()}`
-          : item.handClass;
-      row.appendChild(tag('span', 'luck-hand', hand));
-      row.appendChild(tag('span', 'luck-detail', this.luckDetail(item)));
-      wrap.appendChild(row);
-    }
-    return wrap;
-  }
-
-  /** @param {any} item */
-  luckDetail(item) {
-    if (item.kind === 'runout') {
-      const d = Number(item.deviation ?? 0);
-      return `实际 ${item.actual} / 期望 ${item.expected}（Δ ${d >= 0 ? '+' : ''}${d}）`;
-    }
-    const z = Number(item.z ?? 0).toFixed(2);
-    if (item.kind === 'winrate') {
-      return `实际 ${percent(item.actual, 1)} / 期望 ${percent(item.expected, 1)} · z ${z}（n=${item.n}）`;
-    }
-    return `实均 ${Number(item.actual).toFixed(2)} / 期望 ${Number(item.expected).toFixed(2)} · z ${z}（n=${item.n}）`;
-  }
-
-  /**
-   * 成就列表：三大累计成就 + 牌型收集
-   * @param {{ series: any[], handTypes: any[] }} [achievements]
-   */
-  renderAchievements(achievements) {
-    this.achBody.replaceChildren();
-    if (!achievements) return;
-    for (const item of achievements.series ?? []) {
-      this.achBody.appendChild(this.achievementRow(item, item.unit));
-    }
-    this.achBody.appendChild(
-      tag('div', 'ach-subtitle', '牌型收集（摊牌亮出的最终牌型）'),
-    );
-    for (const item of achievements.handTypes ?? []) {
-      this.achBody.appendChild(this.achievementRow(item, '次'));
-    }
-  }
-
-  /**
-   * @param {any} item
-   * @param {string} unit
-   */
-  achievementRow(item, unit) {
-    const row = node('ach-row');
-    row.title = item.desc || item.name;
-    row.appendChild(tag('span', 'ach-name', item.name));
-    const level = tag('span', `ach-level${item.level ? ' ach-unlocked' : ''}`, item.levelName || '未解锁');
-    row.appendChild(level);
-    const progress =
-      item.next == null ? '已满级' : `${item.value ?? 0} / ${item.next} ${unit}`.trim();
-    row.appendChild(tag('span', 'ach-progress', progress));
-    return row;
-  }
-
-  /**
-   * @param {any} state
-   */
   render(state) {
     paintAvatar(this.avatar, state.session?.user?.avatarId);
     setText(this.userLabel, state.session?.nickname ? `${state.session.nickname}` : '未登录');

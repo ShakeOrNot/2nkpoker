@@ -454,6 +454,18 @@ export async function myStats(token) {
 }
 
 /**
+ * 任意玩家的战绩（牌桌点玩家名打开面板）
+ * GET /auth/players/:id/stats → { ok, user, stats }
+ */
+export async function playerStats(token, userId) {
+  if (!token) return NO_TOKEN;
+  if (!userId) return { ok: false, code: 'INVALID_PAYLOAD', message: '缺少玩家 ID' };
+  const res = await getJson(`/auth/players/${encodeURIComponent(String(userId))}/stats`, { token });
+  if (!res.ok) return { ok: false, code: res.code, message: res.message };
+  return { ok: true, user: res.data.user, stats: res.data.stats ?? null };
+}
+
+/**
  * 健康检查，给登录页做"服务器连通性"提示
  * @returns {Promise<boolean>}
  */

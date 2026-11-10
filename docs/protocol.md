@@ -169,6 +169,7 @@ type TableSummary = {
 | `table:ready` | `{ tableId, ready }` | — |
 | `table:request_state` | `{ tableId }` | `snapshot`（同时也会主动推一次 `table:snapshot`） |
 | `game:action` | `{ tableId, handId, expectedVersion, action }` | — |
+| `game:runout_propose` | `{ tableId, handId, runs }` | `{ ok: true }`；所有 all-in 玩家提议相同次数后开跑 |
 
 `action` 是一个判别联合（`apps/game-server/src/ws/validate.js`）：
 
@@ -201,7 +202,7 @@ type Action =
 
 ### 4.2 服务端 → 客户端
 
-**只有这 8 个事件**（不存在 `game:showdown` / `hand:hole_cards` / `error`）：
+**服务端事件**（含跑马协商）：
 
 | 事件 | 载荷 | 发给谁 |
 | :--- | :--- | :--- |
@@ -210,7 +211,11 @@ type Action =
 | `game:action_request` | `{ handId, seat, legalActions, deadline, version }` | **只发给当前行动者** |
 | `game:action_applied` | `{ seat, action, handId, timeout? }` | 房间 |
 | `game:street` | `{ handId, street, board }` | 房间（街道延迟结束、新公共牌发出时） |
-| `game:result` | `{ handId, result, board, seats }` | 房间 |
+| `game:runout_offer` | `{ handId, board, seats, maxRuns, deadline }` | 房间（跑马且牌没发完时） |
+| `game:runout_state` | `{ handId, maxRuns, deadline, proposals }` | 房间（有人改了提议） |
+| `game:runout_agreed` | `{ handId, runs, timeout? }` | 房间（已达成/超时） |
+| `game:runout_board` | `{ handId, index, runs, board }` | 房间（多 board 逐个亮牌，默认每 900ms 一个） |
+| `game:result` | `{ handId, result, board, seats }` | 房间；`result.boards` 为跑马时的多个 board |
 | `table:closed` | `{ tableId, by }` | 房间（管理员解散牌局时）；前端收到后回大厅 |
 | `table:kicked` | `{ tableId, by }` | **只发给被踢的人**；前端收到后回大厅 |
 
@@ -345,6 +350,7 @@ type HandResult = {
 - **补码（局内买入）**：`table:rebuy { tableId, units }`；两手之间立即生效；**手牌进行中**提交则记 `pendingBuyIn`，在该手结算后（`cleanupAfterHand`）补码，不能立刻改筹码
 - **街道动画延迟**：本街结束到下一条街发牌之间停 `STREET_DELAY_MS`（默认 1000ms）；期间 `board` 不变、不发 `action_request`；延迟结束广播新快照并附带 `game:street` 事件
 - **底池百分比**：前端在下注/跟注按钮上显示 `X%pot`（金额 ÷ 当前底池，四舍五入）
+- **跑马多次**：所有人 all-in 且牌没发完时，服务端先发 `game:runout_offer` 协商；最多 `floor(剩余牌数 ÷ 还需公共牌数)` 次；所有 all-in 玩家提议同一个次数才执行，15 秒（`RUNOUT_TIMEOUT_MS`）没达成一致按 1 次。每个 board 独立按主池/边池结算，N 个 board 的派彩合计等于底池；统计仍算 1 手（牌型取第一个 board）；多 board 逐个亮牌，间隔 `RUNOUT_BOARD_MS`（默认 900ms）
 
 ## 7. 动画时机（给前端/视觉）
 

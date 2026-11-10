@@ -78,8 +78,26 @@ async function main() {
 
   /** @type {any} */
   let lastResult = null;
+  /** @type {any} */
+  let runoutOffer = null;
+  /** @type {any} */
+  let runoutAgreed = null;
+  /** @type {any[]} */
+  const streetEvents = [];
+  /** @type {any[]} */
+  const boardEvents = [];
   for (const socket of [sockA, sockB]) {
     socket.on('game:result', (p) => (lastResult = p));
+    if (socket === sockA) socket.on('game:street', (p) => streetEvents.push(p));
+    if (socket === sockA) socket.on('game:runout_board', (p) => boardEvents.push(p));
+    socket.on('game:runout_offer', (p) => {
+      runoutOffer = p;
+      // 两边都同意跑 2 次
+      socket.emit('game:runout_propose', { tableId: TABLE_ID, handId: p.handId, runs: 2 }, () => {});
+    });
+    socket.on('game:runout_agreed', (p) => {
+      runoutAgreed = p;
+    });
     socket.on('game:action_request', (p) => {
       const action = p.legalActions?.includes('all_in')
         ? { type: 'all_in' }
@@ -97,6 +115,16 @@ async function main() {
   const deadline = Date.now() + 30000;
   while (!lastResult && Date.now() < deadline) await delay(150);
   check(Boolean(lastResult), '一手 all-in 跑到结算');
+  check(Boolean(runoutOffer) && runoutOffer.maxRuns >= 2, '收到跑马协商（最多次数 ≥2）');
+  check(runoutAgreed?.runs === 2, '双方同意后按 2 次跑马');  const boards = lastResult?.result?.boards ?? [];
+  check(boards.length === 2 && boards.every((b) => b.length === 5), '结算里有 2 个完整 board');
+  check(
+    boardEvents.length === 2 && boardEvents.every((b) => b.board.length === 5),
+    '两个 board 是逐个亮出来的（有动画事件）',
+  );
+  const potTotal = (lastResult?.result?.pots ?? []).reduce((n, p) => n + (p.amount ?? 0), 0);
+  const payoutTotal = Object.values(lastResult?.result?.payouts ?? {}).reduce((n, v) => n + Number(v), 0);
+  check(payoutTotal === potTotal, '2 个 board 的派彩合计等于底池（筹码守恒）');
 
   const statA = await api('/auth/me/stats', { method: 'GET', token: regA.accessToken });
   check(statA.ok && statA.stats.hands >= 1, '战绩可读');

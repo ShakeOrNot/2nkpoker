@@ -28,6 +28,7 @@ import { TableMotion, BoardView, deckVisualState } from './table-motion.js';
 import { BetEffects } from './bet-effects.js';
 import { avatarEl, paintAvatar } from './avatar.js';
 import { playerAvatar } from '../core/avatars.js';
+import { PlayerPanel } from './player-panel.js';
 
 export class TableView extends View {
   /**
@@ -45,6 +46,7 @@ export class TableView extends View {
     this.motion = new TableMotion();
     this.betEffects = new BetEffects(this.root);
     this.wagerNodes = new Map();
+    this.playerPanel = new PlayerPanel(this.store);
     this.build();
   }
 
@@ -166,9 +168,6 @@ export class TableView extends View {
     oval.appendChild(this.seatsOval);
     stage.appendChild(oval);
 
-    this.seatsList = node('seats seats-portrait');
-    stage.appendChild(this.seatsList);
-
     main.appendChild(stage);
 
     /* 日志面板 */
@@ -246,7 +245,36 @@ export class TableView extends View {
     this.rebuyOverlay.addEventListener('click', (ev) => {
       if (ev.target === this.rebuyOverlay) this.closeRebuy();
     });
-    this.root.appendChild(this.rebuyOverlay);  }
+    this.root.appendChild(this.rebuyOverlay);
+
+    /* 跑马协商：牌没发完时，所有 all-in 玩家选同一个次数 */
+    this.runoutPanel = node('runout-panel');
+    this.runoutPanel.appendChild(tag('div', 'runout-title', '跑马次数'));
+    this.runoutHint = tag('p', 'runout-hint', '');
+    this.runoutPanel.appendChild(this.runoutHint);
+    const runoutRow = node('runout-controls');
+    this.runoutInput = tag('input', 'input runout-input');
+    this.runoutInput.type = 'number';
+    this.runoutInput.min = '1';
+    this.runoutInput.step = '1';
+    this.runoutInput.value = '1';
+    runoutRow.appendChild(this.runoutInput);
+    this.runoutSubmit = button({
+      label: '提议',
+      className: 'btn-primary btn-sm',
+      onClick: () => void this.submitRunout(),
+    });
+    runoutRow.appendChild(this.runoutSubmit);
+    this.runoutPanel.appendChild(runoutRow);
+    this.runoutProposals = node('runout-proposals');
+    this.runoutPanel.appendChild(this.runoutProposals);
+    this.root.appendChild(this.runoutPanel);
+
+    /* 多 board 逐个亮牌 */
+    this.runoutBoardsView = node('runout-boards-view');
+    this.root.appendChild(this.runoutBoardsView);
+    this.runoutBoardsCount = 0;
+  }
 
   /** 退出：离线模式顺手关掉离线开关，避免下次登录还是离线 */
   doExit() {
@@ -266,7 +294,16 @@ export class TableView extends View {
     const snap = this.store.state.room.snapshot;
     const buyIn = Number(snap?.bigBlind ?? 20) * BUY_IN_BB;
     const res = await this.store.sit(null, buyIn);
-    if (!res.ok) toast(res.message || '入座失败（牌局进行中需要等本手结束）', 'error');
+    if (!res.ok) {
+      toast(res.message || '入座失败（牌局进行中需要等本手结束）', 'error');
+      return;
+    }
+    // 旁观条点进来的语义就是"下一手我要打"：坐下后直接准备，
+    // 否则 ready=false 会一直等不到开局（输光后重新入座的 bug）。
+    if (!res.queued) {
+      const ready = await this.store.setReady(true);
+      if (ready?.ok) toast('已入座，等待下一手开始', 'info');
+    }
   }
 
   /**
@@ -339,22 +376,18 @@ export class TableView extends View {
     setText(this.potEl, hand ? chips(hand.pot ?? 0) : '0');
     setText(this.streetEl, hand ? streetText(hand.street) : '等待开局');
 
-    /* 座位：横屏环绕椭圆，竖屏桌下列表（两套容器，只渲染可见那套） */
+    /* 座位：始终环绕椭圆桌（竖屏也围在桌边，不再单独列在下方） */
     const order = this.seatOrder(maxSeats, mySeat);
     const portrait = this.isPortraitLayout(state.layout);
     this.stageEl.classList.toggle('is-portrait', portrait);
-    this.seatsOval.classList.toggle('hidden', portrait);
-    this.seatsList.classList.toggle('hidden', !portrait);
-    const seatsWrap = portrait ? this.seatsList : this.seatsOval;
+    const seatsWrap = this.seatsOval;
     const occupied = seats.filter((s) => s.userId).length;
     const delta = hand?.result ? chipDelta(hand) : new Map();
 
-    const visibleOrder = portrait
-      ? order.filter((seat) => seats.find((s) => s.seat === seat)?.userId || seat === mySeat)
-      : order;
+    const visibleOrder = order;
 
     // 按顺序写 DOM（保证 MVP 在最后 → 视觉上在最下方）
-    const seatsKey = `${portrait}:${visibleOrder.join(',')}`;
+    const seatsKey = visibleOrder.join(',');
     const reorder = this.seatsKey !== seatsKey;
     const frag = reorder ? document.createDocumentFragment() : null;
     if (reorder) { this.motion.clear(); this.betEffects.reset(); }
@@ -392,7 +425,7 @@ export class TableView extends View {
       wager.classList.toggle('visible', amount > 0 && !hand?.settled);
       wager.setAttribute('aria-label', `${seats.find(s => s.seat === seat)?.nickname ?? '玩家'} 本街下注 ${amount}`);
       setText(wager, chips(amount));
-      betTargets.set(seat, portrait ? el.querySelector('.seat-bet') : wager);
+      betTargets.set(seat, wager);
       if (frag) frag.appendChild(el);
     });
     if (frag) seatsWrap.replaceChildren(frag);
@@ -464,6 +497,8 @@ export class TableView extends View {
 
     /* 结算浮层 */
     this.renderResult(state, hand);
+    this.renderRunout(state);
+    this.renderRunoutBoards(state);
   }
 
   /**
@@ -495,11 +530,15 @@ export class TableView extends View {
     el.appendChild(node('seat-delta'));
     el.addEventListener('click', () => {
       const snap = this.store.state.room.snapshot;
+      const info = snap?.seats?.find((s) => s.seat === seat);
+      // 点已入座的玩家：打开玩家面板（自己也可以看）
+      if (info?.userId) {
+        this.playerPanel.open(info.userId, info.nickname);
+        return;
+      }
       const hand = snap?.hand;
       const running = Boolean(hand && !hand.settled);
-      const taken = Boolean(snap?.seats?.find((s) => s.seat === seat)?.userId);
       const mySeat = this.store.mySeat();
-      if (taken || mySeat === seat) return;
       // 已入座的人：牌局进行中不能换座；旁观者点空位 = 排队/入座
       if (running && mySeat != null) return;
       void this.sitAt(seat);
@@ -649,6 +688,77 @@ export class TableView extends View {
     if (res.ok) this.closeRebuy();
   }
 
+  /** @param {any} state */
+  renderRunout(state) {
+    const runout = state.room.runout;
+    const mySeat = this.store.mySeat();
+    const show = Boolean(runout) && mySeat != null && Array.isArray(runout.seats) && runout.seats.includes(mySeat);
+    this.runoutPanel.classList.toggle('visible', show);
+    if (!show) return;
+
+    const seconds = Math.max(0, Math.ceil(((runout.deadline ?? 0) - Date.now()) / 1000));
+    setText(
+      this.runoutHint,
+      `牌还没发完，最多可跑 ${runout.maxRuns} 次；所有 all-in 玩家选同一个数才开始（剩 ${seconds} 秒）`,
+    );
+    this.runoutInput.max = String(runout.maxRuns);
+    if (Number(this.runoutInput.value) > runout.maxRuns) {
+      this.runoutInput.value = String(runout.maxRuns);
+    }
+
+    const seats = state.room.snapshot?.seats ?? [];
+    this.runoutProposals.replaceChildren();
+    for (const p of runout.proposals ?? []) {
+      const seat = seats.find((s) => s.seat === p.seat);
+      this.runoutProposals.appendChild(
+        tag('div', 'runout-proposal', `${seat?.nickname ?? `座位 ${p.seat}`}：跑 ${p.runs} 次`),
+      );
+    }
+  }
+
+  async submitRunout() {
+    const runs = Math.floor(Number(this.runoutInput.value) || 1);
+    setDisabled(this.runoutSubmit, true);
+    const res = await this.store.proposeRunout(runs);
+    setDisabled(this.runoutSubmit, false);
+    if (!res.ok) toast(res.message || '提议失败', 'error');
+  }
+
+  /** @param {any} state */
+  renderRunoutBoards(state) {
+    const info = state.room.runoutBoards;
+    const boards = info?.boards ?? [];
+    this.runoutBoardsView.classList.toggle('visible', boards.length > 0);
+    if (!boards.length) {
+      this.runoutBoardsView.replaceChildren();
+      this.runoutBoardsCount = 0;
+      return;
+    }
+    if (this.runoutBoardsCount === boards.length) return;
+
+    this.runoutBoardsView.replaceChildren();
+    this.runoutBoardsView.appendChild(
+      tag('div', 'runout-boards-title', `跑马 ${info.runs} 次`),
+    );
+    boards.forEach((board, index) => {
+      const row = node('runout-board-line');
+      row.appendChild(tag('span', 'runout-board-no', `${index + 1}`));
+      for (const c of board) row.appendChild(cardEl(c, { size: 'sm' }));
+      this.runoutBoardsView.appendChild(row);
+      if (index === boards.length - 1) {
+        this.motion.play(
+          row,
+          [
+            { opacity: 0, transform: 'translateY(8px)' },
+            { opacity: 1, transform: 'translateY(0)' },
+          ],
+          { duration: 320 },
+        );
+      }
+    });
+    this.runoutBoardsCount = boards.length;
+  }
+
   renderResult(state, hand) {
     const last = state.room.lastResult;
     const hasResult = Boolean(last?.result) || Boolean(hand?.settled && hand?.result);
@@ -755,6 +865,19 @@ export class TableView extends View {
     emblem.setAttribute('aria-hidden', 'true');
     card.appendChild(emblem);
     card.appendChild(tag('div', 'result-eyebrow', outcome === 'win' ? 'WINNER · 赢家时刻' : outcome === 'lose' ? '本手惜败' : outcome === 'tie' ? 'WELL PLAYED · 好局相逢' : '本手结算'));
+
+    const boards = pseudoHand?.result?.boards;
+    if (Array.isArray(boards) && boards.length > 1) {
+      card.appendChild(tag('div', 'result-runs', `跑马 ${boards.length} 次`));
+      const wrap = node('result-boards');
+      boards.forEach((board, index) => {
+        const row = node('result-board-row');
+        row.appendChild(tag('span', 'result-board-no', `${index + 1}`));
+        for (const c of board) row.appendChild(cardEl(c, { size: 'sm' }));
+        wrap.appendChild(row);
+      });
+      card.appendChild(wrap);
+    }
     if (outcome === 'tie' || outcome === 'lose') {
       if (outcome === 'tie') {
         card.appendChild(tag('div', 'result-morale-title', '棋逢对手'));
