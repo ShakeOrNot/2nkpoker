@@ -615,13 +615,30 @@ try {
       ["As", "Ks", "Qs", "2d", "7c"],
       ["2c", "4c", "6c", "8c", "Tc"],
     ],
+    winners: [[0], [1]],
   };
   table.renderRunoutBoards(store.state);
-  if (!table.runoutBoardsView.classList.contains("visible")) throw new Error("多 board 面板没显示");
-  if (table.runoutBoardsView.children.length !== 3) throw new Error("多 board 行数不对");
+  if (!table.runoutStatusEl.classList.contains("visible")) throw new Error("跑马轮次标记没显示");
+  if (!table.runoutStatusEl.textContent.includes("赢家")) throw new Error("跑马赢家没标记");
+  if (table.runoutBoardsView.classList.contains("visible")) throw new Error("不应再显示 board 面板");
   store.state.room.runoutBoards = null;
   table.renderRunoutBoards(store.state);
-  if (table.runoutBoardsView.classList.contains("visible")) throw new Error("多 board 面板没隐藏");
+  if (table.runoutStatusEl.classList.contains("visible")) throw new Error("多 board 进度没隐藏");
+
+  /* 跑马亮牌 + 胜率 */
+  store.state.room.runoutReveal = {
+    handId: "h1",
+    runs: 2,
+    seats: [{ seat: 0, holeCards: ["As", "Ks"] }],
+    equities: [{ seat: 0, equity: 0.62 }],
+  };
+  table.renderRunoutEquity(store.state);
+  if (!table.runoutEquityEl.classList.contains("visible")) throw new Error("胜率面板没显示");
+  const pctEl = table.runoutEquityEl.children[1]?.children[2];
+  if (!String(pctEl?.textContent).includes("62%")) throw new Error("胜率没渲染");
+  store.state.room.runoutReveal = null;
+  table.renderRunoutEquity(store.state);
+  if (table.runoutEquityEl.classList.contains("visible")) throw new Error("胜率面板没隐藏");
 
   store.state.session = oldSession;
   store.state.room.snapshot = oldSnap;

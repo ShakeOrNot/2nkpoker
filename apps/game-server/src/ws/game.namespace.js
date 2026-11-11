@@ -4,6 +4,7 @@ import { registerTableSit } from './handlers/table.sit.js';
 import { registerTableReady } from './handlers/table.ready.js';
 import { registerGameAction } from './handlers/game.action.js';
 import { registerGameRunout } from './handlers/game.runout.js';
+import { registerShowCards } from './handlers/game.show.js';
 import { registerChat } from './handlers/chat.js';
 import {
   handleDisconnect,
@@ -47,6 +48,7 @@ export function registerGameNamespace(io) {
     registerTableReady(nsp, socket);
     registerGameAction(nsp, socket);
     registerGameRunout(nsp, socket);
+    registerShowCards(nsp, socket);
     registerChat(nsp, socket);
 
     socket.on('disconnect', () => {

@@ -2692,3 +2692,206 @@ body[data-layout='portrait'] .seats-portrait { display: none !important; }
 .runout-boards-title { font-size: 12px; color: #ffd76a; margin-bottom: 6px; }
 .runout-board-line { display: flex; align-items: center; gap: 3px; padding: 3px 0; }
 .runout-board-no { width: 16px; font-size: 11px; color: var(--muted); }
+
+/* 跑马亮牌 + 实时胜率 */
+.runout-equity {
+  position: fixed;
+  right: 10px;
+  top: 12%;
+  width: min(88vw, 320px);
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(12, 16, 21, 0.96);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  z-index: 78;
+  display: none;
+}
+
+.runout-equity.visible { display: block; }
+.runout-equity-title { font-size: 12px; color: #ffd76a; margin-bottom: 6px; }
+.runout-equity-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.runout-equity-cards { display: flex; gap: 2px; }
+.runout-equity-pct { font-weight: 700; color: #7ee2a8; font-variant-numeric: tabular-nums; }
+.runout-board-result { margin-left: 6px; font-size: 11px; color: #ffd76a; }
+.result-show { margin-top: 8px; }
+
+/* 手机竖屏：桌子尽量大，下方操作区收紧 */
+@media (orientation: portrait) {
+  .table-stage { padding: 4px 6px; gap: 4px; }
+  .table-oval { width: 100%; max-height: none; }
+  .my-zone { padding: 4px 8px 2px; }
+  .my-cards { gap: 8px; }
+  .my-name { font-size: 13px; }
+  .my-chips { font-size: 12px; }
+  .controls { padding: 4px 8px calc(4px + var(--safe-bottom)); gap: 4px; }
+  .ctrl-primary .btn { padding: 9px 6px; font-size: 14px; }
+  .btn-lg { padding: 9px 12px; font-size: 14px; }
+}
+
+/* 紧凑操作栏：下注弹出面板 */
+.controls { position: relative; }
+.bet-popup {
+  display: none;
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 6px);
+  z-index: 85;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(14, 18, 23, 0.98);
+  border: 1px solid #b89a51;
+  box-shadow: var(--shadow);
+}
+.bet-popup.open { display: block; }
+.bet-popup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.bet-popup-title { font-size: 12px; color: #ffd76a; }
+.bet-popup .ctrl-submit { margin-top: 8px; }
+.ctrl-primary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.ctrl-primary .btn { padding: 10px 4px; font-size: 14px; }
+.ctrl-quicks { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0 2px; }
+.ctrl-quicks .chip { flex: 0 0 auto; }
+
+/* 电脑大屏：桌子放大、内容限宽居中 */
+@media (min-width: 1100px) {
+  .table-stage { padding: 18px 20px; }
+  .table-oval { width: min(94%, 1100px); }
+  .my-zone, .controls { max-width: 1100px; margin: 0 auto; width: 100%; }
+}
+
+/* 跑马多 board：直接打在主桌上，只显示一行进度 */
+.runout-status {
+  position: fixed;
+  left: 50%;
+  top: 8%;
+  transform: translateX(-50%);
+  z-index: 78;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(10, 14, 18, 0.92);
+  border: 1px solid #b89a51;
+  color: #ffd76a;
+  font-size: 12px;
+  white-space: nowrap;
+  display: none;
+  pointer-events: none;
+}
+.runout-status.visible { display: block; }
+
+/* 结算浮层：不模糊背景、不铺满全屏，尽量少挡牌桌 */
+.result-overlay {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  align-items: flex-start;
+  padding-top: max(10px, 6vh);
+  pointer-events: none;
+}
+.result-card {
+  pointer-events: auto;
+  max-width: 360px;
+  max-height: 62dvh;
+  padding: 12px 14px;
+}
+
+/* 秀牌选择 */
+.show-picker { justify-content: center; gap: 10px; padding: 8px 0; }
+.show-card-btn {
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 2px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.show-card-btn.selected { border-color: #ffd76a; opacity: 1; }
+
+/* 座位旁的实时胜率 */
+.seat-equity {
+  display: none;
+  margin: 2px auto 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(8, 12, 16, 0.85);
+  border: 1px solid #7ee2a8;
+  color: #7ee2a8;
+  font-size: 10px;
+  font-weight: 700;
+  width: max-content;
+}
+.seat-equity.visible { display: block; }
+
+/* 结算横幅：不挡牌桌 */
+.result-banner {
+  position: fixed;
+  left: 50%;
+  top: 11%;
+  transform: translateX(-50%);
+  z-index: 82;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 18px;
+  font-weight: 800;
+  display: none;
+  pointer-events: none;
+  box-shadow: var(--shadow);
+}
+.result-banner.visible { display: block; }
+.result-banner.win { background: rgba(36, 84, 56, 0.95); color: #ffe9a8; border: 1px solid #e6ba58; }
+.result-banner.lose { background: rgba(60, 24, 24, 0.95); color: #ffd7cf; border: 1px solid #a23c30; }
+.result-banner.tie { background: rgba(30, 36, 44, 0.95); color: #d8dee6; border: 1px solid var(--line); }
+
+/* 结算弹窗彻底让位给牌桌（输赢改在牌桌上显示） */
+.result-overlay { display: none !important; }
+
+/* 竖屏：桌子居中，填满可用高度 */
+@media (orientation: portrait) {
+  .table-stage.is-portrait { justify-content: center; }
+  .table-oval { width: 100%; aspect-ratio: 1.55 / 1; }
+}
+
+/* 已秀牌：卡牌左上角绿点 */
+.card { position: relative; }
+.card.card-shown::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #37d67a;
+  box-shadow: 0 0 0 2px #0b1410, 0 0 8px #37d67a;
+  z-index: 3;
+}
+
+/* 本轮跑马赢家座位高亮 */
+.seat-run-winner {
+  box-shadow: 0 0 0 2px #37d67a, 0 0 18px rgba(55, 214, 122, 0.55) !important;
+}
+
+/* 玩家面板缩小约 30%，少挡牌桌 */
+.player-panel {
+  width: min(92vw, 320px);
+  max-height: 70vh;
+  padding: 12px;
+}
+.player-panel .pp-section { border-radius: 8px; }
+.player-panel .modal-title { font-size: 16px; }
+
+/* 点自己的牌即可秀牌 */
+.my-cards .card { cursor: pointer; }

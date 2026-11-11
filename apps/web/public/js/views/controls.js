@@ -1,10 +1,9 @@
 /**
- * 操作栏：弃牌 / 过牌 / 跟注 / 下注（自定义金额 + 快捷比例）/ 全下。
- *
- * 关键约束：下注金额是"本街下注到的总额"，且不能超过"自己本街已下注 + 剩余筹码"，
- * 也就是永远不会超过自己当前的筹码量（界面上还会额外给出提示与截断）。
+ * 紧凑操作栏：
+ *   主按钮：弃牌 / 过牌（或跟注） / 下注（弹出金额面板） / 买入
+ *   快捷：最多 5 个下注筹码（1/3、半池、2/3、满池、全下等）
+ * 金额输入、滑块、加减号放进"下注"弹出面板，默认不占桌面空间。
  */
-
 import { node, setDisabled, setText, tag } from './base.js';
 import { chips, potPercent } from '../core/format.js';
 import { validateBetAmount, maxBetTarget } from '../core/logic.js';
@@ -12,11 +11,12 @@ import { validateBetAmount, maxBetTarget } from '../core/logic.js';
 export class ControlsView {
   /**
    * @param {import('../store.js').Store} store
-   * @param {{ onAction: (action: any) => void }} options
+   * @param {{ onAction: (action: any) => void, onRebuy?: () => void }} options
    */
   constructor(store, options) {
     this.store = store;
     this.onAction = options.onAction;
+    this.onRebuy = options.onRebuy;
     this.handKey = '';
     this.customTouched = false;
     this.root = node('controls');
@@ -24,22 +24,56 @@ export class ControlsView {
   }
 
   build() {
-    /* 第一行：弃牌 / 过牌 / 跟注 */
+    /* 主按钮行：弃牌 / 过牌(跟注) / 下注 / 买入 */
     const primary = node('ctrl-row ctrl-primary');
     this.foldBtn = this.mkAction('弃牌', 'btn-fold', { type: 'fold' });
-    this.checkBtn = this.mkAction('过牌', 'btn-check', { type: 'check' });
-    this.callBtn = this.mkAction('跟注', 'btn-call', { type: 'call' });
+    this.checkBtn = document.createElement('button');
+    this.checkBtn.type = 'button';
+    this.checkBtn.className = 'btn btn-check';
+    this.checkBtn.textContent = '过牌';
+    this.checkBtn.addEventListener('click', () => {
+      const ctx = this.store.actionContext();
+      if (ctx.legal.includes('check')) this.onAction({ type: 'check' });
+      else if (ctx.legal.includes('call')) this.onAction({ type: 'call' });
+    });
+
+    this.betBtn = document.createElement('button');
+    this.betBtn.type = 'button';
+    this.betBtn.className = 'btn btn-primary btn-bet';
+    this.betBtn.textContent = '下注';
+    this.betBtn.addEventListener('click', () => this.openBetPanel());
+
+    this.rebuyBtn = document.createElement('button');
+    this.rebuyBtn.type = 'button';
+    this.rebuyBtn.className = 'btn btn-ghost btn-rebuy';
+    this.rebuyBtn.textContent = '买入';
+    this.rebuyBtn.addEventListener('click', () => this.onRebuy?.());
+
+    // 兼容旧代码/测试：跟注按钮保留但不再显示（跟注合并在"过牌"按钮上）
+    this.callBtn = this.mkAction('跟注', 'btn-call hidden', { type: 'call' });
+
     primary.appendChild(this.foldBtn);
     primary.appendChild(this.checkBtn);
-    primary.appendChild(this.callBtn);
+    primary.appendChild(this.betBtn);
+    primary.appendChild(this.rebuyBtn);
     this.root.appendChild(primary);
 
-    /* 第二行：下注/加注金额 */
-    const amountRow = node('ctrl-amount');
-    this.amountLabel = tag('label', 'field-label', '下注金额（本街下注到）');
-    amountRow.appendChild(this.amountLabel);
+    /* 快捷下注：最多 5 个 */
+    this.quickRow = node('ctrl-quicks');
+    this.root.appendChild(this.quickRow);
 
-    const inputRow = node('row row-tight');
+    /* 下注弹出面板 */
+    this.betPopup = node('bet-popup');
+    const head = node('bet-popup-head');
+    head.appendChild(tag('span', 'bet-popup-title', '下注金额（本街下注到）'));
+    this.popupClose = document.createElement('button');
+    this.popupClose.type = 'button';
+    this.popupClose.className = 'btn btn-ghost btn-step';
+    this.popupClose.textContent = '×';
+    this.popupClose.addEventListener('click', () => this.closeBetPanel());
+    head.appendChild(this.popupClose);
+    this.betPopup.appendChild(head);
+
     this.amountInput = tag('input', 'input input-number');
     this.amountInput.type = 'number';
     this.amountInput.inputMode = 'numeric';
@@ -49,13 +83,14 @@ export class ControlsView {
       this.customTouched = true;
       this.syncFromInput();
     });
-    inputRow.appendChild(this.amountInput);
 
+    const inputRow = node('row row-tight');
+    inputRow.appendChild(this.amountInput);
     this.minusBtn = this.mkStep('−', () => this.bump(-1));
     this.plusBtn = this.mkStep('+', () => this.bump(1));
     inputRow.appendChild(this.minusBtn);
     inputRow.appendChild(this.plusBtn);
-    amountRow.appendChild(inputRow);
+    this.betPopup.appendChild(inputRow);
 
     this.slider = tag('input', 'slider');
     this.slider.type = 'range';
@@ -67,19 +102,12 @@ export class ControlsView {
       this.amountInput.value = String(this.slider.value);
       this.syncFromInput();
     });
-    amountRow.appendChild(this.slider);
+    this.betPopup.appendChild(this.slider);
 
     this.amountHint = node('amount-hint');
-    amountRow.appendChild(this.amountHint);
-    this.root.appendChild(amountRow);
+    this.betPopup.appendChild(this.amountHint);
 
-    /* 第三行：快捷金额 */
-    this.quickRow = node('ctrl-quicks');
-    this.root.appendChild(this.quickRow);
-
-    /* 第四行：执行下注/加注 + 全下 */
     const submitRow = node('ctrl-row ctrl-submit');
-    this.submitBtn = node('btn btn-primary btn-lg btn-grow');
     this.submitBtn = document.createElement('button');
     this.submitBtn.type = 'button';
     this.submitBtn.className = 'btn btn-primary btn-lg btn-grow';
@@ -92,12 +120,15 @@ export class ControlsView {
     this.allInBtn.textContent = '全下';
     this.allInBtn.addEventListener('click', () => this.onAction({ type: 'all_in' }));
     submitRow.appendChild(this.allInBtn);
-    this.root.appendChild(submitRow);
+    this.betPopup.appendChild(submitRow);
+    this.root.appendChild(this.betPopup);
 
-    /* 非我回合时的提示 + 我的行动倒计时（两个独立元素，避免 setText 互相清空） */
+    this.amountLabel = tag('label', 'field-label', '');
+    this.amountLabel.classList.add('hidden');
+
+    /* 非我回合提示 + 倒计时 */
     this.waiting = node('ctrl-waiting', '等待其他玩家行动…');
     this.root.appendChild(this.waiting);
-
     this.countdownEl = node('ctrl-countdown-row');
     this.countdownEl.appendChild(tag('span', 'ctrl-cd-label', '你的行动倒计时'));
     this.countdown = tag('span', 'ctrl-countdown', '');
@@ -107,13 +138,24 @@ export class ControlsView {
     this.disabledOverlay = node('ctrl-disabled');
     this.root.appendChild(this.disabledOverlay);
 
-    /* 倒计时刷新：只在轮到我且有时限时跑 */
     this.countdownTimer = setInterval(() => this.renderCountdown(), 300);
   }
 
-  /**
-   * 行动倒计时：轮到我且服务端给了 deadline 时显示剩余秒数（<8s 变红）
-   */
+  openBetPanel() {
+    const hand = this.store.state.room.snapshot?.hand;
+    if (!hand) return;
+    const seat = this.store.mySeat();
+    const ctx = this.store.actionContext();
+    if (!ctx.legal.includes('bet') && !ctx.legal.includes('raise')) return;
+    this.resetAmount(hand, seat);
+    this.betPopup.classList.add('open');
+    this.amountInput.focus?.();
+  }
+
+  closeBetPanel() {
+    this.betPopup.classList.remove('open');
+  }
+
   renderCountdown() {
     const active = this.root.classList.contains('controls-active');
     const deadline = Number(this.store.state.room.actionRequest?.deadline ?? 0);
@@ -136,7 +178,6 @@ export class ControlsView {
    * @param {string} label
    * @param {string} className
    * @param {{ type: string, amount?: number }} action
-   * @returns {HTMLButtonElement}
    */
   mkAction(label, className, action) {
     const btn = document.createElement('button');
@@ -147,11 +188,7 @@ export class ControlsView {
     return btn;
   }
 
-  /**
-   * @param {string} label
-   * @param {() => void} onClick
-   * @returns {HTMLButtonElement}
-   */
+  /** @param {string} label @param {() => void} onClick */
   mkStep(label, onClick) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -161,10 +198,7 @@ export class ControlsView {
     return btn;
   }
 
-  /**
-   * 滑块/加减号：按底池或大盲的粒度调整
-   * @param {number} direction
-   */
+  /** @param {number} direction */
   bump(direction) {
     const hand = this.store.state.room.snapshot?.hand;
     if (!hand) return;
@@ -175,7 +209,6 @@ export class ControlsView {
     this.syncFromInput();
   }
 
-  /** 输入变化 → 更新滑块与按钮 */
   syncFromInput() {
     const hand = this.store.state.room.snapshot?.hand;
     if (!hand) return;
@@ -185,24 +218,20 @@ export class ControlsView {
     this.refreshAmountState(hand, seat, value);
   }
 
-  /**
-   * @param {any} hand
-   * @param {number|null} seat
-   * @param {number} value
-   */
   refreshAmountState(hand, seat, value) {
     const max = maxBetTarget(hand, seat);
     const check = validateBetAmount(hand, seat, value);
     const isRaise = (hand.currentBet ?? 0) > 0;
     const verb = isRaise ? '加注到' : '下注';
-
     const target = check.clamped || value;
-    const potText = value > 0 && Number(hand.pot ?? 0) > 0 ? ` · ${potPercent(target, hand.pot)}pot` : '';
+    const potText =
+      value > 0 && Number(hand.pot ?? 0) > 0 ? ` · ${potPercent(target, hand.pot)}pot` : '';
     setText(this.submitBtn, `${verb} ${value > 0 ? chips(target) : '—'}${potText}`);
     setDisabled(this.submitBtn, !check.ok);
+
     const parts = [];
     if (value > 0) {
-      parts.push(`占底池 ${potPercent(value, hand.pot ?? 0)}`);
+      parts.push(`占底池 ${potPercent(target, hand.pot ?? 0)}pot`);
       parts.push(`可用筹码 ${chips(max)}`);
     } else {
       parts.push(`可用筹码 ${chips(max)}`);
@@ -225,17 +254,14 @@ export class ControlsView {
     const check = validateBetAmount(hand, seat, value);
     if (!check.ok) return;
     this.onAction({ type: (hand.currentBet ?? 0) > 0 ? 'raise' : 'bet', amount: check.clamped });
+    this.closeBetPanel();
   }
 
-  /**
-   * 每次轮到我都重置一次金额（不需要重新创建 DOM）
-   * @param {any} hand
-   * @param {number|null} seat
-   */
   resetAmount(hand, seat) {
-    const minTarget = (hand.currentBet ?? 0) > 0
-      ? (hand.currentBet ?? 0) + (hand.minRaise ?? hand.bigBlind ?? 0)
-      : (hand.bigBlind ?? 20);
+    const minTarget =
+      (hand.currentBet ?? 0) > 0
+        ? (hand.currentBet ?? 0) + (hand.minRaise ?? hand.bigBlind ?? 0)
+        : (hand.bigBlind ?? 20);
     const max = maxBetTarget(hand, seat);
     const initial = Math.min(Math.max(minTarget, 0), max);
     this.amountInput.value = String(initial);
@@ -243,6 +269,21 @@ export class ControlsView {
     this.slider.value = String(initial);
     this.customTouched = false;
     this.refreshAmountState(hand, seat, initial);
+  }
+
+  /** 快捷下注：直接提交；跟注/全下也走这里 */
+  quickAction(hand, seat, q) {
+    if (q.kind === 'call') {
+      this.onAction({ type: 'call' });
+      return;
+    }
+    if (q.kind === 'allin') {
+      this.onAction({ type: 'all_in' });
+      return;
+    }
+    const check = validateBetAmount(hand, seat, q.amount);
+    if (!check.ok) return;
+    this.onAction({ type: (hand.currentBet ?? 0) > 0 ? 'raise' : 'bet', amount: check.clamped });
   }
 
   /**
@@ -261,6 +302,7 @@ export class ControlsView {
     this.root.classList.toggle('controls-idle', !active);
     this.disabledOverlay.classList.toggle('visible', !active);
     this.waiting.classList.toggle('hidden', active || !seated);
+    if (!active) this.closeBetPanel();
 
     if (!seated) {
       setText(this.waiting, '你正在旁观，入座后即可参与');
@@ -278,59 +320,60 @@ export class ControlsView {
     const callAmount = ctx.needToCall ?? 0;
 
     this.foldBtn.classList.toggle('hidden', !legal.has('fold'));
-    this.checkBtn.classList.toggle('hidden', !legal.has('check'));
-    this.callBtn.classList.toggle('hidden', !legal.has('call'));
+    const canCheck = legal.has('check');
+    const canCall = legal.has('call');
+    this.checkBtn.classList.toggle('hidden', !(canCheck || canCall));
     const callPotText =
-      callAmount > 0 && Number(hand?.pot ?? 0) > 0 ? ` · ${potPercent(callAmount, hand.pot)}pot` : '';
-    setText(this.callBtn, callAmount > 0 ? `跟注 ${chips(callAmount)}${callPotText}` : '跟注');
+      canCall && callAmount > 0 && Number(hand?.pot ?? 0) > 0
+        ? ` · ${potPercent(callAmount, hand.pot)}pot`
+        : '';
+    setText(
+      this.checkBtn,
+      canCheck ? '过牌' : canCall ? `跟注 ${chips(callAmount)}${callPotText}` : '过牌',
+    );
 
     const canBet = legal.has('bet') || legal.has('raise');
-    this.amountLabel.parentElement?.classList.toggle('hidden', !canBet);
-    this.submitBtn.classList.toggle('hidden', !canBet);
-    this.allInBtn.classList.toggle('hidden', !legal.has('all_in'));
+    this.betBtn.classList.toggle('hidden', !canBet);
+    setText(this.betBtn, legal.has('raise') ? '加注' : '下注');
+    this.rebuyBtn.classList.toggle('hidden', !seated);
 
-    // 手牌换了 / 刚轮到我 → 重置金额
-    const key = `${hand?.handId ?? ''}:${hand?.street ?? ''}:${hand?.currentBet ?? 0}:${hand?.version ?? 0}`;
-    if (hand && active && (this.handKey !== key || !this.customTouched)) {
-      this.handKey = key;
-      this.resetAmount(hand, seat);
-    } else if (hand) {
-      this.refreshAmountState(hand, seat, Math.floor(Number(this.amountInput.value) || 0));
+    if (hand && active) {
+      const key = `${hand.handId ?? ''}:${hand.street ?? ''}:${hand.currentBet ?? 0}:${hand.version ?? 0}`;
+      if (this.handKey !== key) {
+        this.handKey = key;
+        if (!this.betPopup.classList.contains('open')) this.resetAmount(hand, seat);
+      }
     }
 
-    // 快捷按钮
+    /* 快捷下注：最多 5 个（4 个池比例 + 全下；不足用最小加注补） */
     const quicks = ctx.quicks ?? [];
-    const quickKey = quicks.map((q) => `${q.key}:${q.amount}`).join('|');
+    const presets = quicks.filter((q) => q.kind === 'preset').slice(0, 5);
+    const allin = quicks.find((q) => q.kind === 'allin');
+    const minBet = quicks.find((q) => q.kind === 'min');
+    const list = [...presets];
+    if (list.length < 5 && minBet) list.push(minBet);
+    if (allin) list.push(allin);
+    const quick = list.slice(0, 6);
+
+    const quickKey = quick.map((q) => `${q.key}:${q.amount}`).join('|');
     if (this.quickKey !== quickKey) {
       this.quickKey = quickKey;
       this.quickRow.replaceChildren();
-      if (!quicks.length) {
-        this.quickRow.classList.add('hidden');
-      } else {
-        this.quickRow.classList.remove('hidden');
-        for (const q of quicks) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `chip chip-action chip-${q.kind}`;
-          btn.textContent = q.label;
-          btn.addEventListener('click', () => {
-            if (q.kind === 'call') {
-              this.onAction({ type: 'call' });
-              return;
-            }
-            this.customTouched = true;
-            this.amountInput.value = String(q.amount);
-            this.slider.value = String(Math.min(q.amount, Number(this.slider.max)));
-            this.refreshAmountState(hand, seat, q.amount);
-          });
-          this.quickRow.appendChild(btn);
-        }
+      this.quickRow.classList.toggle('hidden', !quick.length);
+      for (const q of quick) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `chip chip-action chip-${q.kind}`;
+        btn.textContent = q.label;
+        btn.addEventListener('click', () => this.quickAction(hand, seat, q));
+        this.quickRow.appendChild(btn);
       }
     }
 
     setDisabled(this.foldBtn, !active);
     setDisabled(this.checkBtn, !active);
-    setDisabled(this.callBtn, !active);
+    setDisabled(this.betBtn, !active);
+    setDisabled(this.rebuyBtn, !seated);
     setDisabled(this.allInBtn, !active);
     setDisabled(this.amountInput, !active || !canBet);
     setDisabled(this.slider, !active || !canBet);

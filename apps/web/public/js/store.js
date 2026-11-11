@@ -102,6 +102,12 @@ export class Store {
         /** 跑马多 board 逐个亮牌：{ handId, boards: string[][] } */
         /** @type {any} */
         runoutBoards: null,
+        /** 跑马亮牌 + 实时胜率 */
+        /** @type {any} */
+        runoutReveal: null,
+        /** 结算后主动秀牌：seat -> cards */
+        /** @type {Record<number, string[]>} */
+        shownCards: {},
         /** @type {Array<{ at: number, text: string, kind?: string }>} */
         log: [],
         /** @type {string|null} */
@@ -817,7 +823,7 @@ export class Store {
       onSnapshot: (snapshot) => this.applySnapshot(snapshot),
       onHandStart: (payload) => {
         this.log(`新一手开始：${payload.handId}`);
-        this.patchRoom({ lastResult: null, notice: '' });
+        this.patchRoom({ lastResult: null, notice: '', runoutBoards: null, runoutReveal: null, shownCards: {} });
       },
       onActionRequest: (payload) => this.applyActionRequest(payload),
       onActionApplied: (payload) => {
@@ -825,8 +831,24 @@ export class Store {
         this.log(`座位 ${payload.seat} ${verb}${payload.timeout ? '（超时自动）' : ''}`);
       },
       onResult: (payload) => {
-        this.patchRoom({ runoutBoards: null, runout: null });
+        this.patchRoom({ runoutBoards: null, runout: null, runoutReveal: null });
         this.applyResult(payload);
+      },
+      onStreet: (payload) => {
+        if (!payload?.equities) return;
+        const current = this.state.room.runoutReveal;
+        if (!current || current.handId !== payload.handId) return;
+        this.patchRoom({ runoutReveal: { ...current, equities: payload.equities } });
+      },
+      onRunoutReveal: (payload) => {
+        this.patchRoom({ runoutReveal: payload });
+        this.log(`跑马亮牌：${payload.seats?.length ?? 0} 人，胜率已显示`, 'info');
+      },
+      onShowCards: (payload) => {
+        const shown = { ...(this.state.room.shownCards ?? {}) };
+        shown[payload.seat] = payload.cards;
+        this.patchRoom({ shownCards: shown });
+        if (payload.nickname) this.log(`${payload.nickname} 秀牌：${payload.cards.join(' ')}`, 'info');
       },
       onRunoutOffer: (payload) => {
         this.patchRoom({ runout: { ...payload, proposals: [] } });
@@ -846,9 +868,11 @@ export class Store {
       onRunoutBoard: (payload) => {
         const current = this.state.room.runoutBoards;
         const boards = current?.handId === payload.handId ? [...current.boards] : [];
+        const winners = current?.handId === payload.handId ? [...(current.winners ?? [])] : [];
         boards[payload.index] = payload.board;
+        winners[payload.index] = payload.winners ?? [];
         this.patchRoom({
-          runoutBoards: { handId: payload.handId, runs: payload.runs, boards },
+          runoutBoards: { handId: payload.handId, runs: payload.runs, boards, winners },
         });
       },
       onTableClosed: (payload) => this.handleTableClosed(payload),
@@ -1380,6 +1404,20 @@ export class Store {
       handId: runout.handId,
       runs: Number(runs),
     });
+  }
+
+  /**
+   * 秀牌：可传 1~2 张；手牌进行中会排队到结算时亮出
+   * @param {string[]} [cards]
+   */
+  async showCards(cards) {
+    const tableId = this.state.room.tableId;
+    const hand = this.state.room.snapshot?.hand;
+    const handId = hand && !hand.settled ? hand.handId : this.state.room.lastResult?.handId;
+    if (!tableId || !handId) return { ok: false, code: 'NO_HAND', message: '没有可秀的牌' };
+    const conn = await this.ensureSocket();
+    if (!conn.ok) return conn;
+    return this.socket.request('game:show_cards', { tableId, handId, cards });
   }
 
   async act(action) {    const req = this.pendingRequest;

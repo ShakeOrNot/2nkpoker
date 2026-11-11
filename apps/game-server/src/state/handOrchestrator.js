@@ -15,6 +15,9 @@ export function maybeStartHand(t) {
   const allReady = [...t.seats.values()].every((s) => s.ready);
   if (!allReady) return false;
 
+  t.lastHand = null;
+  t.showQueue = new Map();
+
   const players = [...t.seats.values()]
     .sort((a, b) => a.seat - b.seat)
     .map((s) => ({

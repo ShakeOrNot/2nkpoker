@@ -1,14 +1,15 @@
 import { playAction, cleanupAfterHand, maybeStartHand } from './handOrchestrator.js';
 import { recordHandResult } from './handStats.js';
 import { advancePendingStreet, buildPots, evaluate7 } from '@2nkpoker/poker-engine';
+import { equityShares } from './equity.js';
 import { broadcastTable } from '../ws/handlers/table.sit.js';
 
 const ACTION_TIMEOUT_MS = Number(process.env.ACTION_TIMEOUT_MS ?? 30000);
 /** 一条街结束到下一条街发牌之间的停顿（给前端做翻牌动画） */
-const STREET_DELAY_MS = Number(process.env.STREET_DELAY_MS ?? 1000);
+const STREET_DELAY_MS = Number(process.env.STREET_DELAY_MS ?? 1200);
 // 一手结束后停多久再开下一手：留给前端放结算动画/浮层。
 // 以前这里是立刻开下一手，浮层刚出现就被 hand:start 冲掉了。
-const SETTLE_HOLD_MS = Number(process.env.SETTLE_HOLD_MS ?? 2500);
+const SETTLE_HOLD_MS = Number(process.env.SETTLE_HOLD_MS ?? 5000);
 
 /** @type {Map<string, NodeJS.Timeout>} */
 const timers = new Map();
@@ -24,8 +25,8 @@ const runoutTimers = new Map();
 /** 跑马多 board 逐个亮牌的定时器 */
 /** @type {Map<string, NodeJS.Timeout>} */
 const revealTimers = new Map();
-const RUNOUT_TIMEOUT_MS = Number(process.env.RUNOUT_TIMEOUT_MS ?? 15000);
-const RUNOUT_BOARD_MS = Number(process.env.RUNOUT_BOARD_MS ?? 900);
+const RUNOUT_TIMEOUT_MS = Number(process.env.RUNOUT_TIMEOUT_MS ?? 30000);
+const RUNOUT_BOARD_MS = Number(process.env.RUNOUT_BOARD_MS ?? 3000);
 
 /** 取消跑马协商/亮牌定时器 */
 export function clearRunoutTimer(tableId) {
@@ -125,6 +126,7 @@ export function maybeOfferRunout(nsp, t) {
         runs: 1,
         timeout: true,
       });
+      publishRunoutReveal(nsp, t, 1);
       // 只跑 1 次：回到正常逐街发牌动画
       scheduleStreetAdvance(nsp, t);
     });
@@ -160,6 +162,7 @@ export function handleRunoutPropose(nsp, t, seat, handId, runs) {
     const agreed = values[0];
     t.runout = null;
     nsp.to(`table:${t.tableId}`).emit('game:runout_agreed', { handId: r.handId, runs: agreed });
+    publishRunoutReveal(nsp, t, agreed);
     if (agreed === 1) {
       // 跑 1 次：走正常的逐街发牌 + 1 秒延迟动画
       scheduleStreetAdvance(nsp, t);
@@ -168,6 +171,40 @@ export function handleRunoutPropose(nsp, t, seat, handId, runs) {
     }
   }
   return { ok: true };
+}
+
+/**
+ * 次数确定后公开所有 all-in 玩家的底牌，并广播当前胜率。
+ */
+function publishRunoutReveal(nsp, t, runs) {
+  const hand = t.handState;
+  if (!hand) return;
+  const live = hand.seats.filter((s) => !s.folded);
+  const seats = live.map((s) => ({
+    seat: s.seat,
+    userId: s.userId,
+    nickname: s.nickname,
+    holeCards: [...s.holeCards],
+  }));
+  /** @type {Array<{ seat: number, equity: number }>} */
+  let equities = [];
+  try {
+    const shares = equityShares({
+      board: hand.board,
+      seats: seats.map((s) => ({ seat: s.seat, holeCards: s.holeCards })),
+      samples: 8000,
+    });
+    equities = seats.map((s) => ({ seat: s.seat, equity: shares.get(s.seat) ?? 0 }));
+  } catch {
+    equities = [];
+  }
+  t.runoutReveal = { handId: hand.handId, runs, seats, equities };
+  nsp.to(`table:${t.tableId}`).emit('game:runout_reveal', {
+    handId: hand.handId,
+    runs,
+    seats,
+    equities,
+  });
 }
 
 /**
@@ -187,6 +224,8 @@ function settleRunout(nsp, t, runs) {
   /** @type {Map<number, number>} */
   const payouts = new Map();
   const boards = [];
+  /** @type {number[][]} */
+  const boardWinners = [];
   for (let runIndex = 0; runIndex < runs; runIndex++) {
     const cards = deck.splice(0, need);
     if (cards.length < need) break;
@@ -194,6 +233,11 @@ function settleRunout(nsp, t, runs) {
     boards.push(board);
     const strength = new Map(
       live.map((s) => [s.seat, handStrength(evaluate7([...s.holeCards, ...board]))]),
+    );
+    let best = -Infinity;
+    for (const seat of strength.values()) best = Math.max(best, seat);
+    boardWinners.push(
+      [...strength.entries()].filter(([, v]) => v === best).map(([seat]) => seat),
     );
     const w = awardRun(pots, strength, runIndex, runs);
     for (const [seat, amount] of w) payouts.set(seat, (payouts.get(seat) ?? 0) + amount);
@@ -223,14 +267,14 @@ function settleRunout(nsp, t, runs) {
     if (seatState) seatState.chips = hs.chips;
   }
 
-  revealRunoutBoards(nsp, t, hand.handId, boards);
+  revealRunoutBoards(nsp, t, hand.handId, boards, boardWinners);
 }
 
 /**
  * 多 board 逐个亮牌：每 RUNOUT_BOARD_MS 发一个 game:runout_board，
  * 全部亮完后再广播 game:result（前端因此能逐张看牌）。
  */
-function revealRunoutBoards(nsp, t, handId, boards) {
+function revealRunoutBoards(nsp, t, handId, boards, boardWinners = []) {
   let index = 0;
   const step = () => {
     if (!t.handState || t.handState.handId !== handId) return;
@@ -240,6 +284,7 @@ function revealRunoutBoards(nsp, t, handId, boards) {
         index,
         runs: boards.length,
         board: boards[index],
+        winners: boardWinners[index] ?? [],
       });
       index += 1;
       const timer = setTimeout(step, RUNOUT_BOARD_MS);
@@ -298,11 +343,30 @@ export function scheduleStreetAdvance(nsp, t) {
         return;
       }
       broadcastTable(nsp, t);
+      // 跑马（只跑 1 次）时每条街更新一次胜率，前端实时显示
+      let equities = null;
+      if (t.runoutReveal && t.runoutReveal.handId === handId) {
+        try {
+          const shares = equityShares({
+            board: t.handState.board,
+            seats: t.runoutReveal.seats.map((s) => ({ seat: s.seat, holeCards: s.holeCards })),
+            samples: 8000,
+          });
+          equities = t.runoutReveal.seats.map((s) => ({
+            seat: s.seat,
+            equity: shares.get(s.seat) ?? 0,
+          }));
+          t.runoutReveal.equities = equities;
+        } catch {
+          equities = null;
+        }
+      }
       // 给前端的显式动画事件（没有监听也不影响）
       nsp.to(`table:${t.tableId}`).emit('game:street', {
         handId,
         street: t.handState.street,
         board: [...t.handState.board],
+        ...(equities ? { equities } : {}),
       });
       // 跑马时引擎每次只发一条街：还有下一条就继续按节奏推进
       if (t.handState.pendingStreetAdvance) {
@@ -408,6 +472,7 @@ export function broadcastResult(nsp, t, handId) {
   clearStreetTimer(t.tableId);
   clearRunoutTimer(t.tableId);
   t.runout = null;
+  t.runoutReveal = null;
   // 结算明细需要的座位信息（昵称/投入/弃牌）必须随结果一起发出去：
   // 紧接着 cleanupAfterHand 会把 handState 清空，客户端手里就没有座位数据，
   // 结算浮层会因为"没有 seats"画不出来（这就是联机模式少结算框的原因）。
@@ -429,6 +494,36 @@ export function broadcastResult(nsp, t, handId) {
     board: t.handState.board,
     seats: publicSeats,
   });
+
+  // 结算后 5 秒内允许参与者主动秀牌（已 showdown 亮过的不重复）
+  t.lastHand = {
+    handId,
+    at: Date.now(),
+    seats: t.handState.seats.map((s) => ({
+      seat: s.seat,
+      userId: s.userId,
+      nickname: s.nickname,
+      holeCards: [...s.holeCards],
+      folded: s.folded,
+    })),
+    revealed: t.handState.result.revealed ?? {},
+    shown: new Set(),
+    shownCards: new Map(),
+  };
+
+  // 手牌进行中排队要秀的牌：结算时自动亮出
+  const queued = t.showQueue ?? new Map();
+  t.showQueue = new Map();
+  for (const [seat, item] of queued) {
+    t.lastHand.shown.add(seat);
+    t.lastHand.shownCards.set(seat, item.cards);
+    nsp.to(`table:${t.tableId}`).emit('game:show_cards', {
+      handId,
+      seat,
+      nickname: item.nickname,
+      cards: item.cards,
+    });
+  }
 
   // 战绩入库（必须在 cleanupAfterHand 清空 handState 之前）
   try {

@@ -86,10 +86,13 @@ async function main() {
   const streetEvents = [];
   /** @type {any[]} */
   const boardEvents = [];
+  /** @type {any} */
+  let revealEvent = null;
   for (const socket of [sockA, sockB]) {
     socket.on('game:result', (p) => (lastResult = p));
     if (socket === sockA) socket.on('game:street', (p) => streetEvents.push(p));
     if (socket === sockA) socket.on('game:runout_board', (p) => boardEvents.push(p));
+    if (socket === sockA) socket.on('game:runout_reveal', (p) => (revealEvent = p));
     socket.on('game:runout_offer', (p) => {
       runoutOffer = p;
       // 两边都同意跑 2 次
@@ -121,6 +124,16 @@ async function main() {
   check(
     boardEvents.length === 2 && boardEvents.every((b) => b.board.length === 5),
     '两个 board 是逐个亮出来的（有动画事件）',
+  );
+  check(
+    revealEvent?.seats?.length === 2 &&
+      revealEvent.seats.every((s) => s.holeCards.length === 2) &&
+      Math.abs(revealEvent.equities.reduce((n, x) => n + x.equity, 0) - 1) < 0.01,
+    '协商后公开双方底牌并给出胜率',
+  );
+  check(
+    boardEvents.every((b) => Array.isArray(b.winners) && b.winners.length > 0),
+    '每个 board 标记了赢家',
   );
   const potTotal = (lastResult?.result?.pots ?? []).reduce((n, p) => n + (p.amount ?? 0), 0);
   const payoutTotal = Object.values(lastResult?.result?.payouts ?? {}).reduce((n, v) => n + Number(v), 0);

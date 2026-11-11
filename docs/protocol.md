@@ -170,6 +170,7 @@ type TableSummary = {
 | `table:request_state` | `{ tableId }` | `snapshot`（同时也会主动推一次 `table:snapshot`） |
 | `game:action` | `{ tableId, handId, expectedVersion, action }` | — |
 | `game:runout_propose` | `{ tableId, handId, runs }` | `{ ok: true }`；所有 all-in 玩家提议相同次数后开跑 |
+| `game:show_cards` | `{ tableId, handId, cards? }` | `{ ok: true, queued? }`；进行中预约结算时秀，或结算后 5 秒内立即秀；cards 可只传 1~2 张 |
 
 `action` 是一个判别联合（`apps/game-server/src/ws/validate.js`）：
 
@@ -214,7 +215,9 @@ type Action =
 | `game:runout_offer` | `{ handId, board, seats, maxRuns, deadline }` | 房间（跑马且牌没发完时） |
 | `game:runout_state` | `{ handId, maxRuns, deadline, proposals }` | 房间（有人改了提议） |
 | `game:runout_agreed` | `{ handId, runs, timeout? }` | 房间（已达成/超时） |
-| `game:runout_board` | `{ handId, index, runs, board }` | 房间（多 board 逐个亮牌，默认每 900ms 一个） |
+| `game:runout_reveal` | `{ handId, runs, seats, equities }` | 房间（次数确定后公开 all-in 底牌 + 当前胜率） |
+| `game:runout_board` | `{ handId, index, runs, board, winners }` | 房间（多 board 逐个亮牌，默认每 3000ms 一个） |
+| `game:show_cards` | `{ handId, seat, nickname, cards }` | 房间（有人主动秀牌/预约的牌在结算时亮出） |
 | `game:result` | `{ handId, result, board, seats }` | 房间；`result.boards` 为跑马时的多个 board |
 | `table:closed` | `{ tableId, by }` | 房间（管理员解散牌局时）；前端收到后回大厅 |
 | `table:kicked` | `{ tableId, by }` | **只发给被踢的人**；前端收到后回大厅 |
@@ -348,9 +351,9 @@ type HandResult = {
 - **盲注与前注**：固定 `10/20 ante 5`（前端只提供这一档）；ante 先于盲注缴纳、计入 `totalCommitted`/底池，但**不计入** `betThisStreet`；筹码不足 ante 时直接 all-in
 - **买入**：1 个买入 = **100 个 BB**（默认 2000 筹码），每人每桌最多 **50 个买入**；买入金额必须是整数个买入单位。创建牌局不选买入，固定 1 个；等待室默认 1 个
 - **补码（局内买入）**：`table:rebuy { tableId, units }`；两手之间立即生效；**手牌进行中**提交则记 `pendingBuyIn`，在该手结算后（`cleanupAfterHand`）补码，不能立刻改筹码
-- **街道动画延迟**：本街结束到下一条街发牌之间停 `STREET_DELAY_MS`（默认 1000ms）；期间 `board` 不变、不发 `action_request`；延迟结束广播新快照并附带 `game:street` 事件
+- **街道动画延迟**：本街结束到下一条街发牌之间停 `STREET_DELAY_MS`（默认 1200ms）；期间 `board` 不变、不发 `action_request`；延迟结束广播新快照并附带 `game:street` 事件
 - **底池百分比**：前端在下注/跟注按钮上显示 `X%pot`（金额 ÷ 当前底池，四舍五入）
-- **跑马多次**：所有人 all-in 且牌没发完时，服务端先发 `game:runout_offer` 协商；最多 `floor(剩余牌数 ÷ 还需公共牌数)` 次；所有 all-in 玩家提议同一个次数才执行，15 秒（`RUNOUT_TIMEOUT_MS`）没达成一致按 1 次。每个 board 独立按主池/边池结算，N 个 board 的派彩合计等于底池；统计仍算 1 手（牌型取第一个 board）；多 board 逐个亮牌，间隔 `RUNOUT_BOARD_MS`（默认 900ms）
+- **跑马多次**：所有人 all-in 且牌没发完时，服务端先发 `game:runout_offer` 协商；最多 `floor(剩余牌数 ÷ 还需公共牌数)` 次；所有 all-in 玩家提议同一个次数才执行，30 秒（`RUNOUT_TIMEOUT_MS`）没达成一致按 1 次。每个 board 独立按主池/边池结算，N 个 board 的派彩合计等于底池；统计仍算 1 手（牌型取第一个 board）；多 board 逐个亮牌，间隔 `RUNOUT_BOARD_MS`（默认 3000ms）；次数确定后公开所有 all-in 底牌并显示胜率（`runout_reveal`）；结算后 5 秒（`SHOW_CARDS_MS`）内本手参与者可主动秀牌；手牌进行中点自己的牌可预约只秀一张或两张，结算时自动亮出
 
 ## 7. 动画时机（给前端/视觉）
 

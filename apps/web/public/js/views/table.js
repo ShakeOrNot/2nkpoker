@@ -183,6 +183,16 @@ export class TableView extends View {
     const mine = node('my-zone');
     const myCards = node('my-cards');
     this.myHoleEl = node('card-row');
+    this.myHoleEl.addEventListener('click', (ev) => {
+      const wrap = ev.target.closest?.('.board-card') ?? ev.target.closest?.('.card');
+      const cardNode = ev.target.closest?.('.card') ?? wrap?.querySelector?.('.card');
+      if (!wrap && !cardNode) return;
+      // dealtCardEl 外面包了一层 .board-card，索引要按外层算
+      const holder = wrap ?? cardNode;
+      const index = [...this.myHoleEl.children].indexOf(holder);
+      const card = this.myHoleCards()[index];
+      if (card) void this.showOneCard(card);
+    });
     myCards.appendChild(this.myHoleEl);
     const myInfo = node('my-info');
     this.myNameEl = tag('div', 'my-name', '');
@@ -191,12 +201,6 @@ export class TableView extends View {
     myInfo.appendChild(this.myNameEl);
     myInfo.appendChild(this.myChipsEl);
     myInfo.appendChild(this.myHandEl);
-    this.rebuyBtn = button({
-      label: '买入',
-      className: 'btn-ghost btn-xs',
-      onClick: () => this.openRebuy(),
-    });
-    myInfo.appendChild(this.rebuyBtn);
     myCards.appendChild(myInfo);
     mine.appendChild(myCards);
     this.myZoneEl = mine;
@@ -205,6 +209,7 @@ export class TableView extends View {
     /* 操作栏 */
     this.controls = new ControlsView(this.store, {
       onAction: (action) => void this.sendAction(action),
+      onRebuy: () => this.openRebuy(),
     });
     this.root.appendChild(this.controls.root);
 
@@ -247,6 +252,29 @@ export class TableView extends View {
     });
     this.root.appendChild(this.rebuyOverlay);
 
+    /* 秀牌选择：点自己的手牌，选一张或两张 */
+    this.showOverlay = node('modal-overlay');
+    const showCard = node('modal-card');
+    showCard.appendChild(tag('h3', 'modal-title', '秀牌'));
+    this.showHint = tag('p', 'modal-hint', '选一张或两张；手牌进行中点了会在结算时亮出');
+    showCard.appendChild(this.showHint);
+    this.showCardsRow = node('card-row show-picker');
+    showCard.appendChild(this.showCardsRow);
+    const showActions = node('modal-actions');
+    showActions.appendChild(button({ label: '取消', className: 'btn-ghost', onClick: () => this.closeShowPicker() }));
+    this.showConfirm = button({ label: '秀牌', className: 'btn-primary', onClick: () => void this.confirmShowCards() });
+    showActions.appendChild(this.showConfirm);
+    showCard.appendChild(showActions);
+    this.showOverlay.appendChild(showCard);
+    this.showOverlay.addEventListener('click', (ev) => {
+      if (ev.target === this.showOverlay) this.closeShowPicker();
+    });
+    this.root.appendChild(this.showOverlay);
+
+    /* 结算结果横幅：不挡牌桌，不遮秀牌 */
+    this.resultBannerEl = node('result-banner');
+    this.root.appendChild(this.resultBannerEl);
+
     /* 跑马协商：牌没发完时，所有 all-in 玩家选同一个次数 */
     this.runoutPanel = node('runout-panel');
     this.runoutPanel.appendChild(tag('div', 'runout-title', '跑马次数'));
@@ -270,10 +298,18 @@ export class TableView extends View {
     this.runoutPanel.appendChild(this.runoutProposals);
     this.root.appendChild(this.runoutPanel);
 
-    /* 多 board 逐个亮牌 */
+    /* 多 board 逐个亮牌：直接打在主牌桌上，用一行小字标进度 */
     this.runoutBoardsView = node('runout-boards-view');
     this.root.appendChild(this.runoutBoardsView);
     this.runoutBoardsCount = 0;
+    this.runoutDealTimer = null;
+    this.runoutDealKey = '';
+    this.runoutStatusEl = node('runout-status');
+    this.root.appendChild(this.runoutStatusEl);
+
+    /* 跑马亮牌 + 实时胜率 */
+    this.runoutEquityEl = node('runout-equity');
+    this.root.appendChild(this.runoutEquityEl);
   }
 
   /** 退出：离线模式顺手关掉离线开关，避免下次登录还是离线 */
@@ -392,6 +428,10 @@ export class TableView extends View {
     const frag = reorder ? document.createDocumentFragment() : null;
     if (reorder) { this.motion.clear(); this.betEffects.reset(); }
     const betTargets = new Map();
+    const runoutWinnerRows = state.room.runoutBoards?.winners ?? [];
+    const latestRunWinners = new Set(
+      runoutWinnerRows.length ? runoutWinnerRows[runoutWinnerRows.length - 1] ?? [] : [],
+    );
     visibleOrder.forEach((seat, index) => {
       const el = this.seatNode(seat);
       const pos = this.ovalPosition(index, visibleOrder.length);
@@ -411,6 +451,11 @@ export class TableView extends View {
         position: hand ? positionOf(hand, seat) : tablePositionOf(snap, seat),
         delta: delta.get(seat) ?? 0,
         settled: Boolean(hand?.settled),
+        shownCards: state.room.shownCards?.[seat] ?? null,
+        equity: state.room.runoutReveal?.equities?.find((x) => x.seat === seat)?.equity ?? null,
+        runWinner: latestRunWinners.has(seat),
+        revealedCards:
+          state.room.runoutReveal?.seats?.find((s) => s.seat === seat)?.holeCards ?? null,
       });
       let wager = this.wagerNodes.get(seat);
       if (!wager) {
@@ -455,6 +500,11 @@ export class TableView extends View {
     }
 
     const category = holeCards.length ? bestCategory(holeCards, hand?.board ?? []) : null;
+    const shownMine = state.room.shownCards?.[mySeat] ?? [];
+    [...this.myHoleEl.children].forEach((wrap, index) => {
+      const cardNode = wrap.querySelector('.card') ?? wrap;
+      cardNode.classList.toggle('card-shown', shownMine.includes(holeCards[index]));
+    });
     const myPos = positionOf(hand, mySeat) || tablePositionOf(snap, mySeat);
     setText(this.myNameEl, me ? `${me.nickname}${myPos ? ` · ${myPos}` : ''}` : '未入座');
     const pendingBuyIn = Number(me?.pendingBuyIn ?? 0);
@@ -463,8 +513,6 @@ export class TableView extends View {
       this.myChipsEl,
       `${myHandSeat ? `筹码 ${chips(myHandSeat.chips)}` : me ? `筹码 ${chips(me.chips)}` : ''}${pendingText}`,
     );
-    // 只有坐下的人才能买入
-    this.rebuyBtn.classList.toggle('hidden', !seated);
     setText(
       this.myHandEl,
       category ? `牌型：${category.name}` : myHandSeat?.folded ? '已弃牌' : '',
@@ -499,6 +547,7 @@ export class TableView extends View {
     this.renderResult(state, hand);
     this.renderRunout(state);
     this.renderRunoutBoards(state);
+    this.renderResultBanner(state);
   }
 
   /**
@@ -526,6 +575,7 @@ export class TableView extends View {
     el.appendChild(node('seat-chips'));
     el.appendChild(node('seat-bet'));
     el.appendChild(node('seat-cards'));
+    el.appendChild(node('seat-equity'));
     el.appendChild(node('seat-tags'));
     el.appendChild(node('seat-delta'));
     el.addEventListener('click', () => {
@@ -568,6 +618,7 @@ export class TableView extends View {
     const taken = Boolean(seatInfo?.userId);
     const avatar = el.querySelector('.seat-avatar');
     paintAvatar(avatar, info.avatar);
+    el.classList.toggle('seat-run-winner', Boolean(info.runWinner));
     avatar.classList.toggle('hidden', !taken);
 
     el.classList.toggle('seat-empty', !taken);
@@ -592,8 +643,20 @@ export class TableView extends View {
     betEl.textContent = bet > 0 ? `下注 ${chips(bet)}` : '';
     betEl.classList.toggle('visible', bet > 0);
 
+    const eq = info.equity;
+    const eqEl = el.querySelector('.seat-equity');
+    if (eqEl) {
+      setText(eqEl, eq == null ? '' : `${Math.round(eq * 100)}%`);
+      eqEl.classList.toggle('visible', eq != null && !handSeat?.folded);
+    }
     const cardsEl = el.querySelector('.seat-cards');
-    const cards = handSeat?.holeCards ?? [];
+    const cards = info.revealedCards?.length
+      ? info.revealedCards
+      : handSeat?.holeCards?.length
+        ? handSeat.holeCards
+        : info.shownCards?.length
+          ? info.shownCards
+          : [];
     const wasFolded = Boolean(handSeat?.folded);
     // 未亮牌但已入局 → 显示牌背
     const showBacks = Boolean(handSeat) && !wasFolded && cards.length === 0 && !settled;
@@ -724,39 +787,178 @@ export class TableView extends View {
     if (!res.ok) toast(res.message || '提议失败', 'error');
   }
 
+  async doShowCards() {
+    this.openShowPicker();
+  }
+
+  /** 点一张牌就秀这一张（进行中会等到结算） */
+  async showOneCard(card) {
+    const seat = this.store.mySeat();
+    if (seat == null) return;
+    const shown = this.store.state.room.shownCards?.[seat] ?? [];
+    if (shown.includes(card)) return;
+    const res = await this.store.showCards([card]);
+    if (!res.ok) {
+      toast(res.message || '秀牌失败', 'error');
+      return;
+    }
+    const cards = res.cards ?? [...shown, card];
+    this.store.patchRoom({
+      shownCards: { ...(this.store.state.room.shownCards ?? {}), [seat]: cards },
+    });
+    toast(res.queued ? '结算时亮出这张牌' : '已亮出', 'info');
+  }
+
+  /** 自己的两张底牌（手牌中或刚结算） */
+  myHoleCards() {
+    const seat = this.store.mySeat();
+    const hand = this.store.state.room.snapshot?.hand;
+    const own = hand?.seats?.find((s) => s.seat === seat);
+    if (own?.holeCards?.length) return own.holeCards;
+    return this.store.state.lastHoleCards ?? [];
+  }
+
+  openShowPicker() {
+    if (this.store.mySeat() == null) return;
+    const cards = this.myHoleCards();
+    if (!cards.length) {
+      toast('现在没有可秀的牌', 'info');
+      return;
+    }
+    this.showSelection = new Set(cards);
+    this.showCardsRow.replaceChildren();
+    for (const c of cards) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'show-card-btn selected';
+      btn.appendChild(cardEl(c, { size: 'lg' }));
+      btn.addEventListener('click', () => {
+        if (this.showSelection.has(c)) this.showSelection.delete(c);
+        else this.showSelection.add(c);
+        if (!this.showSelection.size) this.showSelection.add(c);
+        btn.classList.toggle('selected', this.showSelection.has(c));
+      });
+      this.showCardsRow.appendChild(btn);
+    }
+    this.showOverlay.classList.add('visible');
+  }
+
+  closeShowPicker() {
+    this.showOverlay.classList.remove('visible');
+  }
+
+  async confirmShowCards() {
+    const cards = [...(this.showSelection ?? [])];
+    if (!cards.length) return;
+    setDisabled(this.showConfirm, true);
+    const res = await this.store.showCards(cards);
+    setDisabled(this.showConfirm, false);
+    if (!res.ok) {
+      toast(res.message || '秀牌失败', 'error');
+      return;
+    }
+    this.closeShowPicker();
+    toast(res.queued ? '已设置，本手结算时秀出' : '已秀牌', 'info');
+  }
+
+  /** 结算横幅：只在牌桌上方显示输赢，不挡牌桌 */
+  renderResultBanner(state) {
+    const last = state.room.lastResult;
+    const el = this.resultBannerEl;
+    if (!last?.result) {
+      el.classList.remove('visible');
+      return;
+    }
+    const age = last.at ? Date.now() - last.at : 0;
+    if (age > RESULT_HOLD_MS) {
+      el.classList.remove('visible');
+      return;
+    }
+    const row = last.seats?.find((s) => s.userId === state.session?.userId);
+    if (!row) {
+      el.classList.remove('visible');
+      return;
+    }
+    const won = Number(last.result.payouts?.[row.seat] ?? 0);
+    const net = won - Number(row.totalCommitted ?? 0);
+    el.className = `result-banner visible ${net > 0 ? 'win' : net < 0 ? 'lose' : 'tie'}`;
+    el.textContent =
+      net > 0 ? `你赢了 +${chips(net)}` : net < 0 ? `你输了 −${chips(Math.abs(net))}` : '本手打平';
+  }
+
   /** @param {any} state */
   renderRunoutBoards(state) {
     const info = state.room.runoutBoards;
     const boards = info?.boards ?? [];
-    this.runoutBoardsView.classList.toggle('visible', boards.length > 0);
+    this.runoutBoardsView.classList.remove('visible');
+    this.runoutBoardsView.replaceChildren();
     if (!boards.length) {
-      this.runoutBoardsView.replaceChildren();
+      if (this.runoutDealTimer) clearInterval(this.runoutDealTimer);
+      this.runoutDealTimer = null;
+      this.runoutDealKey = '';
+      this.runoutStatusEl.classList.remove('visible');
+      this.runoutStatusEl.textContent = '';
       this.runoutBoardsCount = 0;
       return;
     }
-    if (this.runoutBoardsCount === boards.length) return;
+    const index = boards.length - 1;
+    const winners = info.winners?.[index] ?? [];
+    const seats = state.room.snapshot?.seats ?? [];
+    const names = winners
+      .map((seat) => seats.find((s) => s.seat === seat)?.nickname ?? `座位 ${seat}`)
+      .join(' / ');
+    this.runoutStatusEl.textContent = `第 ${index + 1}/${info.runs} 次${names ? ` · 赢家 ${names}` : ''}`;
+    this.runoutStatusEl.classList.add('visible');
 
-    this.runoutBoardsView.replaceChildren();
-    this.runoutBoardsView.appendChild(
-      tag('div', 'runout-boards-title', `跑马 ${info.runs} 次`),
-    );
-    boards.forEach((board, index) => {
-      const row = node('runout-board-line');
-      row.appendChild(tag('span', 'runout-board-no', `${index + 1}`));
-      for (const c of board) row.appendChild(cardEl(c, { size: 'sm' }));
-      this.runoutBoardsView.appendChild(row);
-      if (index === boards.length - 1) {
-        this.motion.play(
-          row,
-          [
-            { opacity: 0, transform: 'translateY(8px)' },
-            { opacity: 1, transform: 'translateY(0)' },
-          ],
-          { duration: 320 },
-        );
-      }
-    });
+    const key = `runout:${info.handId}:${index}`;
+    if (this.runoutDealKey === key && this.runoutBoardsCount === boards.length) return;
+    this.runoutDealKey = key;
     this.runoutBoardsCount = boards.length;
+    if (this.runoutDealTimer) clearInterval(this.runoutDealTimer);
+
+    // 3 秒内匀速发完 5 张（约每 560ms 一张）
+    const board = boards[index];
+    let shown = 1;
+    this.boardView.update(key, board.slice(0, shown), false, this.deckTopEl);
+    this.runoutDealTimer = setInterval(() => {
+      shown += 1;
+      this.boardView.update(key, board.slice(0, shown), false, this.deckTopEl);
+      if (shown >= Math.min(5, board.length)) {
+        clearInterval(this.runoutDealTimer);
+        this.runoutDealTimer = null;
+      }
+    }, 560);
+  }
+
+  /** @param {any} state */
+  renderRunoutEquity(state) {
+    const reveal = state.room.runoutReveal;
+    const seats = reveal?.seats ?? [];
+    this.runoutEquityEl.classList.toggle('visible', seats.length > 0);
+    if (!seats.length) {
+      this.runoutEquityEl.replaceChildren();
+      return;
+    }
+    const bySeat = new Map((reveal.equities ?? []).map((x) => [x.seat, x.equity]));
+    const snapSeats = state.room.snapshot?.seats ?? [];
+    this.runoutEquityEl.replaceChildren(
+      tag('div', 'runout-equity-title', `跑马亮牌 · ${reveal.runs ?? 1} 次`),
+    );
+    for (const s of seats) {
+      const row = node('runout-equity-row');
+      row.appendChild(
+        tag(
+          'span',
+          'runout-equity-name',
+          snapSeats.find((x) => x.seat === s.seat)?.nickname ?? s.nickname ?? `座位 ${s.seat}`,
+        ),
+      );
+      const cards = node('runout-equity-cards');
+      for (const c of s.holeCards ?? []) cards.appendChild(cardEl(c, { size: 'sm' }));
+      row.appendChild(cards);
+      row.appendChild(tag('span', 'runout-equity-pct', `${Math.round((bySeat.get(s.seat) ?? 0) * 100)}%`));
+      this.runoutEquityEl.appendChild(row);
+    }
   }
 
   renderResult(state, hand) {
@@ -957,6 +1159,15 @@ export class TableView extends View {
       list.appendChild(line);
     }
     card.appendChild(list);
+
+    if (mine && !mine.holeCards?.length && mySeat != null && !state.room.shownCards?.[mySeat]) {
+      this.resultShowBtn = button({
+        label: '秀牌（结算后 5 秒内）',
+        className: 'btn-ghost btn-block result-show',
+        onClick: () => void this.doShowCards(),
+      });
+      card.appendChild(this.resultShowBtn);
+    }
 
     this.resultCloseBtn = button({ label: outcome === 'tie' ? '好局继续 · 回到牌桌' : outcome === 'lose' ? '回到牌桌' : '继续牌局', className: 'btn-ghost btn-block result-close', onClick: () => this.dismissResult() });
     card.appendChild(this.resultCloseBtn);
