@@ -353,7 +353,7 @@ type HandResult = {
 - **补码（局内买入）**：`table:rebuy { tableId, units }`；两手之间立即生效；**手牌进行中**提交则记 `pendingBuyIn`，在该手结算后（`cleanupAfterHand`）补码，不能立刻改筹码
 - **街道动画延迟**：本街结束到下一条街发牌之间停 `STREET_DELAY_MS`（默认 1200ms）；期间 `board` 不变、不发 `action_request`；延迟结束广播新快照并附带 `game:street` 事件
 - **底池百分比**：前端在下注/跟注按钮上显示 `X%pot`（金额 ÷ 当前底池，四舍五入）
-- **跑马多次**：所有人 all-in 且牌没发完时，服务端先发 `game:runout_offer` 协商；最多 `floor(剩余牌数 ÷ 还需公共牌数)` 次；所有 all-in 玩家提议同一个次数才执行，30 秒（`RUNOUT_TIMEOUT_MS`）没达成一致按 1 次。每个 board 独立按主池/边池结算，N 个 board 的派彩合计等于底池；统计仍算 1 手（牌型取第一个 board）；多 board 逐个亮牌，间隔 `RUNOUT_BOARD_MS`（默认 3000ms）；次数确定后公开所有 all-in 底牌并显示胜率（`runout_reveal`）；结算后 5 秒（`SHOW_CARDS_MS`）内本手参与者可主动秀牌；手牌进行中点自己的牌可预约只秀一张或两张，结算时自动亮出
+- **跑马多次**：所有人 all-in 且牌没发完时，服务端先发 `game:runout_offer` 协商；最多 `floor(剩余牌数 ÷ 还需公共牌数)` 次；所有 all-in 玩家提议同一个次数才执行，30 秒（`RUNOUT_TIMEOUT_MS`）没达成一致按 1 次。每个 board 独立按主池/边池结算，N 个 board 的派彩合计等于底池；统计仍算 1 手（牌型取第一个 board）；多 board 逐个亮牌，间隔 `RUNOUT_BOARD_MS`（默认 3000ms）；次数确定后公开所有 all-in 底牌并显示胜率（`runout_reveal`）；结算后 5 秒（`SHOW_CARDS_MS`）内本手参与者可主动秀牌；有人秀牌时下一手再延后 3 秒；手牌进行中点自己的牌可预约只秀一张或两张，结算时自动亮出
 
 ## 7. 动画时机（给前端/视觉）
 

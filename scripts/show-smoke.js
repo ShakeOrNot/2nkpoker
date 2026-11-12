@@ -104,6 +104,11 @@ async function main() {
   const deadline = Date.now() + 15000;
   while (!result && Date.now() < deadline) await delay(100);
   check(Boolean(result), '弃牌结束并收到结算');
+  const resultAt = Date.now();
+  let nextAt = 0;
+  sockA.on('hand:start', () => {
+    nextAt = Date.now();
+  });
   check(!Object.keys(result.result.revealed ?? {}).length, '本手没有摊牌亮牌');
   check(queuedAck?.ok === true && queuedAck.queued === true, '手牌进行中可以预约秀牌');
   check(shown.some((s) => s.seat === 1 && s.cards?.length === 2), '结算时自动亮出预约的牌');
@@ -124,6 +129,9 @@ async function main() {
     sockA.emit('game:show_cards', { tableId, handId: result.handId, cards: [aCards[0]] }, r),
   );
   check(again.ok === false && again.code === 'ALREADY_SHOWN', '同一张牌不能重复秀');
+  const waitNext = Date.now() + 12000;
+  while (!nextAt && Date.now() < waitNext) await delay(100);
+  check(nextAt > 0 && nextAt - resultAt >= 7000, `秀牌后下一手延后 ${nextAt ? nextAt - resultAt : 0}ms`);
 
   sockA.close();
   sockB.close();

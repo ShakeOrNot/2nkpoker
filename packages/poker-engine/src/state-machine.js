@@ -469,7 +469,7 @@ function settle(state, forcedWinnerSeat) {
   };
 }
 
-function handValueToStrength(hv) {
+export function handValueToStrength(hv) {
   let n = hv.category;
   // 每种牌型都占用相同的五个比较位，确保牌型始终优先于踢脚牌。
   for (let i = 0; i < 5; i++) {

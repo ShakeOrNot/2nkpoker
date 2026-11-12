@@ -1,6 +1,11 @@
 import { playAction, cleanupAfterHand, maybeStartHand } from './handOrchestrator.js';
 import { recordHandResult } from './handStats.js';
-import { advancePendingStreet, buildPots, evaluate7 } from '@2nkpoker/poker-engine';
+import {
+  advancePendingStreet,
+  buildPots,
+  evaluate7,
+  handValueToStrength as handStrength,
+} from '@2nkpoker/poker-engine';
 import { equityShares } from './equity.js';
 import { broadcastTable } from '../ws/handlers/table.sit.js';
 
@@ -35,13 +40,6 @@ export function clearRunoutTimer(tableId) {
     if (timer) clearTimeout(timer);
     map.delete(tableId);
   }
-}
-
-/** 牌力数字（与引擎内部一致，用于比大小） */
-function handStrength(hv) {
-  let n = hv.category;
-  for (const t of hv.tiebreakers) n = n * 100 + t;
-  return n;
 }
 
 /**
@@ -308,9 +306,38 @@ export function clearActionTimer(tableId) {
 
 /** 取消"下一手"的排队定时器（离桌/断线清理时用） */
 export function clearNextHandTimer(tableId) {
-  const t = nextHandTimers.get(tableId);
-  if (t) clearTimeout(t);
+  const entry = nextHandTimers.get(tableId);
+  if (entry) clearTimeout(entry.timer ?? entry);
   nextHandTimers.delete(tableId);
+}
+
+/** 秀牌后额外留给牌桌展示的时间 */
+const SHOW_HOLD_EXTRA_MS = 3000;
+
+/** 安排下一手在 dueAt 开始 */
+function armNextHand(nsp, t, dueAt) {
+  clearNextHandTimer(t.tableId);
+  const delay = Math.max(0, dueAt - Date.now());
+  const timer = setTimeout(() => {
+    nextHandTimers.delete(t.tableId);
+    t.actor.run(() => {
+      if (!maybeStartHand(t)) return;
+      broadcastTable(nsp, t);
+      broadcastHandStart(nsp, t);
+      broadcastActionRequest(nsp, t);
+    });
+  }, delay);
+  nextHandTimers.set(t.tableId, { timer, dueAt });
+}
+
+/**
+ * 检测到秀牌后，把下一手至少推迟到"现在 + ms"（默认 3 秒），
+ * 让所有人看清楚秀出的牌。
+ */
+export function delayNextHand(nsp, t, ms = SHOW_HOLD_EXTRA_MS) {
+  const entry = nextHandTimers.get(t.tableId);
+  if (!entry) return;
+  armNextHand(nsp, t, entry.dueAt + ms);
 }
 
 /** 取消街道推进定时器（解散/清桌时用） */
@@ -509,6 +536,7 @@ export function broadcastResult(nsp, t, handId) {
     revealed: t.handState.result.revealed ?? {},
     shown: new Set(),
     shownCards: new Map(),
+    holdExtended: false,
   };
 
   // 手牌进行中排队要秀的牌：结算时自动亮出
@@ -524,6 +552,7 @@ export function broadcastResult(nsp, t, handId) {
       cards: item.cards,
     });
   }
+  if (queued.size) t.lastHand.holdExtended = true;
 
   // 战绩入库（必须在 cleanupAfterHand 清空 handState 之前）
   try {
@@ -555,17 +584,12 @@ export function broadcastResult(nsp, t, handId) {
 
   // 结算后停 SETTLE_HOLD_MS 再开下一手：让前端有时间播结算浮层/动画。
   // 期间有人离座/取消准备的话，maybeStartHand 会自然返回 false。
-  clearNextHandTimer(t.tableId);
-  const timer = setTimeout(() => {
-    nextHandTimers.delete(t.tableId);
-    t.actor.run(() => {
-      if (!maybeStartHand(t)) return;
-      broadcastTable(nsp, t);
-      broadcastHandStart(nsp, t);
-      broadcastActionRequest(nsp, t);
-    });
-  }, SETTLE_HOLD_MS);
-  nextHandTimers.set(t.tableId, timer);
+  // 如果本手有人预约秀牌，再多留 3 秒给大家看牌。
+  armNextHand(
+    nsp,
+    t,
+    Date.now() + SETTLE_HOLD_MS + (queued.size ? SHOW_HOLD_EXTRA_MS : 0),
+  );
 }
 
 function computeLegalActions(t, seat) {

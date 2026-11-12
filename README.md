@@ -63,14 +63,26 @@ cp .env.example .env      # Windows: copy .env.example .env
 | `JWT_ISSUER` / `JWT_AUDIENCE` | `2nkpoker` / `2nkpoker-web` | JWT 校验用 |
 | `ACTION_TIMEOUT_MS` | 30000 | 轮到某人行动的超时，超时自动过牌/弃牌 |
 | `RECONNECT_GRACE_MS` | 30000 | 掉线后保留座位的宽限期 |
-| `SETTLE_HOLD_MS` | 2500 | 一手结束后停多久再开下一手（放结算动画） |
-| `STREET_DELAY_MS` | 1000 | 翻牌/转牌/河牌前的停留时间（给前端动画） |
+| `SETTLE_HOLD_MS` | 5000 | 一手结束后停多久再开下一手（放结算动画） |
+| `STREET_DELAY_MS` | 1200 | 翻牌/转牌/河牌前的停留时间（给前端动画） |
+| `RUNOUT_BOARD_MS` | 3000 | 跑马每个 board 的亮牌间隔 |
+| `RUNOUT_TIMEOUT_MS` | 30000 | all-in 跑马协商超时 |
+| `SHOW_CARDS_MS` | 5000 | 结算后允许主动秀牌的时间窗口 |
+| `TRUST_PROXY` | 空 | nginx 后面设为 `1`，本地留空 |
 | `AUTH_DB_PATH` | `var/2nkpoker.db` | SQLite 用户库位置（默认仓库根 `var/`，已 gitignore） |
 | `ACCESS_TTL_MS` | 900000 | access token 有效期（15 分钟） |
 | `REFRESH_TTL_MS` | 604800000 | 刷新令牌有效期（7 天） |
 | `ALLOW_DEV_TOKEN` | 1 | 是否挂载开发用的 `POST /dev/token`（生产始终关闭） |
 | `AUTH_MAX_ATTEMPTS` / `AUTH_LOCK_MS` | 5 / 300000 | 同账号连续失败几次锁多久 |
 | `AUTH_WINDOW_MS` / `AUTH_IP_MAX_ATTEMPTS` | 300000 / 20 | 同 IP 限流窗口与上限 |
+
+行为参数统一放在 `env.shared`，本地/服务器用同一份：
+
+```bash
+node scripts/sync-env.mjs          # 同步到本地 .env（只改共享键，保留密钥）
+node scripts/check-env.mjs         # 查看当前生效值
+node scripts/sync-env.mjs /srv/2nkpoker/.env   # 服务器上执行
+```
 
 ### 3. 启动
 

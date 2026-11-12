@@ -1,4 +1,5 @@
 import { getTable } from '../../state/tableManager.js';
+import { delayNextHand } from '../../state/actionTimer.js';
 
 const SHOW_WINDOW_MS = Number(process.env.SHOW_CARDS_MS ?? 5000);
 const replyAck = (ack, res) => {
@@ -64,6 +65,11 @@ export function registerShowCards(nsp, socket) {
         nickname: row.nickname,
         cards: merged,
       });
+      // 有人秀牌：下一手延后 3 秒（同一手只延一次）
+      if (!last.holdExtended) {
+        last.holdExtended = true;
+        delayNextHand(nsp, t);
+      }
       replyAck(ack, { ok: true, cards: merged });
     });
   });
