@@ -265,14 +265,14 @@ function settleRunout(nsp, t, runs) {
     if (seatState) seatState.chips = hs.chips;
   }
 
-  revealRunoutBoards(nsp, t, hand.handId, boards, boardWinners);
+  revealRunoutBoards(nsp, t, hand.handId, boards, boardWinners, base.length);
 }
 
 /**
  * 多 board 逐个亮牌：每 RUNOUT_BOARD_MS 发一个 game:runout_board，
  * 全部亮完后再广播 game:result（前端因此能逐张看牌）。
  */
-function revealRunoutBoards(nsp, t, handId, boards, boardWinners = []) {
+function revealRunoutBoards(nsp, t, handId, boards, boardWinners = [], baseLength = 0) {
   let index = 0;
   const step = () => {
     if (!t.handState || t.handState.handId !== handId) return;
@@ -283,6 +283,7 @@ function revealRunoutBoards(nsp, t, handId, boards, boardWinners = []) {
         runs: boards.length,
         board: boards[index],
         winners: boardWinners[index] ?? [],
+        baseLength,
       });
       index += 1;
       const timer = setTimeout(step, RUNOUT_BOARD_MS);

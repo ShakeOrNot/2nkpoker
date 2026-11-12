@@ -2895,3 +2895,32 @@ body[data-layout='portrait'] .seats-portrait { display: none !important; }
 
 /* 点自己的牌即可秀牌 */
 .my-cards .card { cursor: pointer; }
+
+/* 本桌净盈利 */
+.nets-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; max-height: 46vh; overflow-y: auto; }
+.nets-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.nets-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nets-hands { color: var(--muted); font-size: 11px; }
+.nets-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.nets-value.win { color: #7ee2a8; }
+.nets-value.lose { color: #ff8f80; }
+.nets-empty { padding: 14px 0; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* 手机端座位头像再缩小一点，少挡牌桌 */
+@media (orientation: portrait) {
+  .table-stage.is-portrait .seats-oval .seat { width: 84px; }
+  .table-stage.is-portrait .seats-oval .seat .seat-avatar {
+    width: 22px;
+    height: 22px;
+    left: -9px;
+    border-width: 1px;
+  }
+}

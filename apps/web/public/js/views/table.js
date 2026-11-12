@@ -113,8 +113,14 @@ export class TableView extends View {
         this.logPanel.classList.toggle('open', this.logOpen);
       },
     });
+    this.netsBtn = button({
+      label: '盈亏',
+      className: 'btn-ghost btn-sm',
+      onClick: () => void this.openTableNets(),
+    });
     headerActions.appendChild(this.inviteBtn);
     headerActions.appendChild(this.logBtn);
+    headerActions.appendChild(this.netsBtn);
     this.exitBtn = button({
       label: '退出',
       className: 'btn-ghost btn-sm',
@@ -270,6 +276,23 @@ export class TableView extends View {
       if (ev.target === this.showOverlay) this.closeShowPicker();
     });
     this.root.appendChild(this.showOverlay);
+
+    /* 本桌净盈利弹窗 */
+    this.netsOverlay = node('modal-overlay');
+    const netsCard = node('modal-card');
+    netsCard.appendChild(tag('h3', 'modal-title', '本桌净盈利'));
+    this.netsHint = tag('p', 'modal-hint', '只统计在座玩家；按本桌历史牌局累计');
+    netsCard.appendChild(this.netsHint);
+    this.netsList = node('nets-list');
+    netsCard.appendChild(this.netsList);
+    const netsActions = node('modal-actions');
+    netsActions.appendChild(button({ label: '关闭', className: 'btn-ghost', onClick: () => this.closeTableNets() }));
+    netsCard.appendChild(netsActions);
+    this.netsOverlay.appendChild(netsCard);
+    this.netsOverlay.addEventListener('click', (ev) => {
+      if (ev.target === this.netsOverlay) this.closeTableNets();
+    });
+    this.root.appendChild(this.netsOverlay);
 
     /* 结算结果横幅：不挡牌桌，不遮秀牌 */
     this.resultBannerEl = node('result-banner');
@@ -847,6 +870,39 @@ export class TableView extends View {
     this.showOverlay.classList.remove('visible');
   }
 
+  async openTableNets() {
+    this.netsOverlay.classList.add('visible');
+    this.netsList.replaceChildren(tag('div', 'nets-empty', '加载中…'));
+    const res = await this.store.tablePlayerNets();
+    if (!res.ok) {
+      this.netsList.replaceChildren(tag('div', 'nets-empty', res.message || '加载失败'));
+      return;
+    }
+    if (!res.players.length) {
+      this.netsList.replaceChildren(tag('div', 'nets-empty', '当前没有在座玩家'));
+      return;
+    }
+    this.netsList.replaceChildren();
+    for (const p of res.players) {
+      const row = node('nets-row');
+      row.appendChild(tag('span', 'nets-name', p.nickname || `座位 ${p.seat + 1}`));
+      row.appendChild(tag('span', 'nets-hands', `${p.hands} 手`));
+      const net = Number(p.net ?? 0);
+      row.appendChild(
+        tag(
+          'span',
+          `nets-value ${net > 0 ? 'win' : net < 0 ? 'lose' : ''}`,
+          `${net > 0 ? '+' : net < 0 ? '−' : '±'}${chips(Math.abs(net))}`,
+        ),
+      );
+      this.netsList.appendChild(row);
+    }
+  }
+
+  closeTableNets() {
+    this.netsOverlay.classList.remove('visible');
+  }
+
   async confirmShowCards() {
     const cards = [...(this.showSelection ?? [])];
     if (!cards.length) return;
@@ -916,10 +972,12 @@ export class TableView extends View {
     this.runoutBoardsCount = boards.length;
     if (this.runoutDealTimer) clearInterval(this.runoutDealTimer);
 
-    // 3 秒内匀速发完 5 张（约每 560ms 一张）
+    // 3 秒内匀速发完 5 张（约每 560ms 一张）；flop/turn 已发的牌不再重播
     const board = boards[index];
-    let shown = 1;
+    const baseLength = Math.max(0, Number(info.baseLength ?? 0));
+    let shown = Math.min(Math.max(1, baseLength), board.length);
     this.boardView.update(key, board.slice(0, shown), false, this.deckTopEl);
+    if (shown >= Math.min(5, board.length)) return;
     this.runoutDealTimer = setInterval(() => {
       shown += 1;
       this.boardView.update(key, board.slice(0, shown), false, this.deckTopEl);

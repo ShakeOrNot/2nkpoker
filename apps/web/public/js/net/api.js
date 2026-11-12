@@ -466,6 +466,17 @@ export async function playerStats(token, userId) {
 }
 
 /**
+ * 本桌各座位的净盈利
+ * GET /tables/:id/player-nets → { ok, players }
+ */
+export async function tablePlayerNets(token, tableId) {
+  if (!token) return NO_TOKEN;
+  const res = await getJson(`/tables/${encodeURIComponent(String(tableId))}/player-nets`, { token });
+  if (!res.ok) return { ok: false, code: res.code, message: res.message };
+  return { ok: true, players: res.data.players ?? [] };
+}
+
+/**
  * 健康检查，给登录页做"服务器连通性"提示
  * @returns {Promise<boolean>}
  */

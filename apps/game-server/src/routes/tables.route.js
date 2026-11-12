@@ -1,4 +1,6 @@
 import { listTables, createTable, getTable } from '../state/tableManager.js';
+import { getDb } from '../users/db.js';
+import { requireUser } from '../auth/adminGuard.js';
 import { z } from 'zod';
 
 const CreateTableSchema = z.object({
@@ -38,6 +40,42 @@ export function registerTablesRoutes(app) {
         createdAt: t.createdAt ?? Date.now(),
       },
     };
+  });
+
+  // GET /tables/:tableId/player-nets —— 本桌每个座位的净盈利（按本桌牌局统计）
+  app.get('/tables/:tableId/player-nets', async (req, reply) => {
+    const user = requireUser(req, reply);
+    if (!user) return reply;
+    const tableId = String(req.params.tableId ?? '');
+    const t = getTable(tableId);
+    if (!t) {
+      reply.code(404);
+      return { ok: false, code: 'TABLE_NOT_FOUND' };
+    }
+    const rows = getDb()
+      .prepare(
+        `SELECT user_id,
+                COALESCE(SUM(net), 0) AS net,
+                COUNT(*) AS hands
+         FROM player_hands
+         WHERE table_id = ?
+         GROUP BY user_id`,
+      )
+      .all(tableId);
+    const byUser = new Map(rows.map((r) => [r.user_id, r]));
+    const players = [...t.seats.values()]
+      .map((s) => {
+        const row = byUser.get(s.userId);
+        return {
+          seat: s.seat,
+          userId: s.userId,
+          nickname: s.nickname,
+          net: Number(row?.net ?? 0),
+          hands: Number(row?.hands ?? 0),
+        };
+      })
+      .sort((a, b) => b.net - a.net || a.seat - b.seat);
+    return { ok: true, tableId, players };
   });
 
   // POST /tables —— 创建牌局

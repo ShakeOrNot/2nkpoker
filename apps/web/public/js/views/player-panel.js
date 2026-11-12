@@ -185,11 +185,8 @@ export class PlayerPanel {
     for (const item of items) {
       const row = node('luck-row');
       row.appendChild(tag('span', 'luck-kind', item.title));
-      const hand =
-        item.kind === 'runout'
-          ? `${item.handClass} ${String(item.holeCards ?? '').replace(/(.{2})/g, '$1 ').trim()}`
-          : item.handClass;
-      row.appendChild(tag('span', 'luck-hand', hand));
+      const cards = String(item.holeCards ?? '').replace(/(.{2})/g, '$1 ').trim();
+      row.appendChild(tag('span', 'luck-hand', `${item.handClass ?? ''}${cards ? ` ${cards}` : ''}`));
       row.appendChild(tag('span', 'luck-detail', this.luckDetail(item)));
       block.appendChild(row);
     }

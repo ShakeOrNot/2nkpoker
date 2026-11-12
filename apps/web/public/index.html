@@ -263,15 +263,25 @@
   -->
   <script>
     (function () {
-      var timer = setTimeout(function () { show(''); }, 4000);
+      // 原生 ESM 首次加载要拉几十个模块；手机网络偶发一个请求排队超过 4 秒
+      // 并不代表启动失败。4 秒只提示"较慢"，15 秒仍没启动才算失败。
+      var slowTimer = setTimeout(function () {
+        if (window.__poker) return;
+        var status = document.getElementById('boot-status');
+        if (status) status.textContent = '加载较慢，正在继续…';
+      }, 4000);
+      var failTimer = setTimeout(function () { show(''); }, 15000);
 
       window.addEventListener('error', function (ev) {
         var t = ev.target;
         if (t && t.tagName === 'SCRIPT') {
-          clearTimeout(timer);
+          clearTimeout(slowTimer);
+          clearTimeout(failTimer);
           show('脚本加载失败：' + (t.src || '(inline)'));
         } else if (ev.error && ev.message) {
           // 真正的 JS 运行时错误（资源加载失败不会带 ev.error）
+          clearTimeout(slowTimer);
+          clearTimeout(failTimer);
           show('脚本报错：' + ev.message);
         }
       }, true);
@@ -281,6 +291,8 @@
         var box = document.getElementById('boot-error');
         if (!box || box.dataset.shown) return;
         box.dataset.shown = '1';
+        clearTimeout(slowTimer);
+        clearTimeout(failTimer);
 
         var lines = [];
         if (location.protocol === 'file:') {
@@ -288,19 +300,27 @@
           lines.push('请在项目根目录执行：node apps/web/dev-server.mjs');
           lines.push('然后访问 http://localhost:8080');
         } else {
-          lines.push('页面没能启动：app.js 没有加载成功。');
-          lines.push('请打开浏览器控制台（F12）查看红色错误，并确认 ' + location.origin + '/js/app.js 能打开。');
+          lines.push('页面没能启动：app.js 加载超时。');
+          lines.push('请检查手机网络后刷新；若反复出现，打开控制台看 ' + location.origin + '/js/app.js 是否 200。');
         }
         if (extra) lines.push(extra);
 
         var status = document.getElementById('boot-status');
         if (status) status.textContent = '启动失败';
         box.innerHTML = lines.map(function (t) { return '<div>· ' + t + '</div>'; }).join('');
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-primary btn-sm';
+        btn.textContent = '刷新重试';
+        btn.style.marginTop = '10px';
+        btn.addEventListener('click', function () { location.reload(); });
+        box.appendChild(btn);
         box.classList.add('visible');
       }
     })();
   </script>
 
+  <link rel="modulepreload" href="./js/app.js" />
   <script type="module" src="./js/app.js"></script>
 </body>
 </html>

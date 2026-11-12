@@ -46,6 +46,7 @@ export function luckForUser(userId) {
   const rows = db
     .prepare(
       `SELECT hand_class,
+              MAX(hole_cards) AS hole_cards,
               COUNT(*) AS n,
               COALESCE(SUM(won), 0) AS wins,
               COALESCE(SUM(CASE WHEN category_weight IS NOT NULL THEN 1 ELSE 0 END), 0) AS wn,
@@ -77,6 +78,7 @@ export function luckForUser(userId) {
         kind: 'winrate',
         title: '起手牌胜率',
         handClass: r.hand_class,
+        holeCards: r.hole_cards,
         n,
         actual,
         expected,
@@ -94,6 +96,7 @@ export function luckForUser(userId) {
         kind: 'strength',
         title: '牌力质量',
         handClass: r.hand_class,
+        holeCards: r.hole_cards,
         n: wn,
         actual,
         expected,

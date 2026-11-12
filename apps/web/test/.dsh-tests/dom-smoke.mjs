@@ -616,11 +616,13 @@ try {
       ["2c", "4c", "6c", "8c", "Tc"],
     ],
     winners: [[0], [1]],
+    baseLength: 3,
   };
   table.renderRunoutBoards(store.state);
   if (!table.runoutStatusEl.classList.contains("visible")) throw new Error("跑马轮次标记没显示");
   if (!table.runoutStatusEl.textContent.includes("赢家")) throw new Error("跑马赢家没标记");
   if (table.runoutBoardsView.classList.contains("visible")) throw new Error("不应再显示 board 面板");
+  if (table.boardView.cards.length !== 3) throw new Error(`flop 已有的 3 张应直接显示，实际 ${table.boardView.cards.length}`);
   store.state.room.runoutBoards = null;
   table.renderRunoutBoards(store.state);
   if (table.runoutStatusEl.classList.contains("visible")) throw new Error("多 board 进度没隐藏");

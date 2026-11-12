@@ -649,6 +649,14 @@ export class Store {
     return api.playerStats(token, userId);
   }
 
+  /** 本桌所有座位的净盈利 */
+  async tablePlayerNets(tableId = this.state.room.tableId) {
+    const token = this.state.session?.token;
+    if (!token) return { ok: false, code: 'AUTH_FAILED', message: '请先登录' };
+    if (!tableId) return { ok: false, code: 'NO_TABLE', message: '不在牌局里' };
+    return api.tablePlayerNets(token, tableId);
+  }
+
   /**
    * 管理员解散了当前牌局：清掉房间状态回大厅
    * @param {any} payload
@@ -872,7 +880,13 @@ export class Store {
         boards[payload.index] = payload.board;
         winners[payload.index] = payload.winners ?? [];
         this.patchRoom({
-          runoutBoards: { handId: payload.handId, runs: payload.runs, boards, winners },
+          runoutBoards: {
+            handId: payload.handId,
+            runs: payload.runs,
+            boards,
+            winners,
+            baseLength: Number(payload.baseLength ?? current?.baseLength ?? 0),
+          },
         });
       },
       onTableClosed: (payload) => this.handleTableClosed(payload),
